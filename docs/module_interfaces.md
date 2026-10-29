@@ -14,7 +14,8 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `density_analysis.run_kde(dataset, params, study_area=None)` | `CleanDataset, KDEParams, StudyArea?` | `DensityResult` | `AnalysisError` | 5 |
 | `spatial_statistics.haversine_m(lat1, lon1, lat2, lon2)` | degrees | metres | — | 4 (written by M2) |
 | `spatial_statistics.summarize(dataset, clusters, density)` | either result may be `None` | `SpatialSummary` | — | 6 |
-| `map_visualization.build_incident_map(dataset)` | `CleanDataset` | `folium.Map` | — | 3 |
+| `map_visualization.build_incident_map(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `folium.Map` | `AnalysisError` if unusable or empty | 3 (done) |
+| `map_visualization.incident_marker_records(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `list[dict]` with keys `incident_id, lat, lon, source_row, tooltip, popup_html` | `AnalysisError` if unusable or empty | 3 (done) |
 | `map_visualization.build_cluster_map(result)` | `ClusterResult` | `folium.Map` | — | 7 |
 | `map_visualization.build_density_map(result)` | `DensityResult` | `folium.Map` | — | 7 |
 | `app_controller.run_analysis(source, config, source_name=None, persist=True)` | file + `AnalysisConfig` | `AnalysisRun` | propagates the errors above | 8 |
@@ -34,6 +35,20 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 - **`load_raw_dataset` takes an optional `max_rows`:** the default comes from config, so existing calls are unchanged.
 - **New issue code `NON_FINITE_COORDINATE`:** for `inf` coordinates, which no existing code covered.
 - **Clean frame index:** `CleanDataset.frame` keeps the **source row index**, not a renumbered `0..n-1`. Downstream modules must not assume a `RangeIndex`. Use positional operations (`.to_numpy()`, `.iloc`) where needed.
+
+## Stage 3 additions (compatible, additive)
+- **Empty or unusable input to the incident map raises `AnalysisError`.** The contract didn't specify this case before. An empty map would need a hard-coded fallback location, which the project avoids. The UI checks `is_usable` first and shows a message instead. `run_dbscan` follows the same rule in Stage 4.
+- **`max_points` (default `MAX_MAP_POINTS` = 5,000)** caps how many markers are drawn, taking the first N rows in file order. It is a rendering limit only: the dataset is not changed. `max_points=None` draws every row.
+  - When the cap applies, the UI says that only the first 5,000 are displayed and that this is **not a representative sample**: file order may follow time or place, so the drawn points may not reflect where incidents concentrate.
+  - Better sampling or aggregation is deferred.
+- **`incident_marker_records`** is the plain marker data the map is built from. It exists so tests and later layers can check positions and IDs without parsing HTML.
+- **Marker rules:**
+  - Coordinates are read **by position** (`to_numpy()` / `iloc`).
+  - The frame's index label is carried only as `source_row`, for tracing back to the file.
+  - Every user-supplied value in tooltips and popups is HTML-escaped.
+  - Popups show only the optional columns that exist and are non-blank.
+- **View:** the initial centre is the midpoint of the data's bounding box. For more than one distinct location the map fits that box; a single location is centred at zoom 15.
+- **Determinism:** marker order, positions and popup text are deterministic for a fixed input. Folium's internal element IDs are random and are not part of the contract.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

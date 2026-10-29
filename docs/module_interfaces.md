@@ -15,7 +15,8 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `density_analysis.run_kde(dataset, params, study_area=None, max_cells=MAX_GRID_CELLS)` | `CleanDataset, KDEParams, StudyArea?` | `DensityResult` | `AnalysisError` (unusable or empty dataset, invalid parameter or coordinate, grid too large, grid beyond ±85° latitude) | 5 (done) |
 | `app_controller.estimate_density(dataset, config)` | `CleanDataset, AnalysisConfig` | `DensityResult` | `AnalysisError` | 5 (done) |
 | `spatial_statistics.haversine_m(lat1, lon1, lat2, lon2)` | degrees (scalars) | metres | — | 4 (done, written by M2) |
-| `spatial_statistics.summarize(dataset, clusters, density)` | either result may be `None` | `SpatialSummary` | — | 6 |
+| `spatial_statistics.summarize(dataset, clusters, density)` | `CleanDataset`; either result may be `None` | `SpatialSummary` | `AnalysisError` (unusable or empty dataset, results that don't match it, invalid results) | 6 (done) |
+| `spatial_statistics.compare_methods(clusters, density)` | `ClusterResult, DensityResult` | `MethodComparison` | `AnalysisError` (invalid or inconsistent inputs) | 6 (done) |
 | `map_visualization.build_incident_map(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `folium.Map` | `AnalysisError` if unusable or empty | 3 (done) |
 | `map_visualization.incident_marker_records(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `list[dict]` with keys `incident_id, lat, lon, source_row, tooltip, popup_html` | `AnalysisError` if unusable or empty | 3 (done) |
 | `map_visualization.build_cluster_map(result)` | `ClusterResult` | `folium.Map` | — | 7 |
@@ -114,6 +115,82 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 - **`params`** records `bandwidth_m`, `bandwidth_rad`, `kernel`, `grid_cell_m`, `metric`, `algorithm`, `lat_step_deg`, `lon_step_deg`, `grid_extent`, `grid_source`, `high_density_quantile`, `n_points` and `density_units`.
 - **`app_controller.estimate_density`** is additive. It checks `is_usable`, then calls `run_kde(dataset, config.kde, config.study_area)`. There is no UI yet; the heatmap is Stage 7.
 - **Other regions:** nothing is tied to one city. Very large or high-latitude areas are limited by the cell cap and the ±85° rule. For those, set a `study_area` and a coarser `grid_cell_m`.
+
+## Stage 6 decisions (spatial statistics and method comparison)
+### Contract changes (approved)
+- **New `ClusterOverlap` and `MethodComparison` dataclasses**, plain `@dataclass` like the other contracts. `SpatialSummary` gains an optional `method_comparison: MethodComparison | None = None`, so existing constructors keep working.
+- **Three `SpatialSummary` fields are now optional:** `cluster_count: int | None`, `candidate_hotspot_count: int | None` and `noise_share: float | None`.
+  - `None` means DBSCAN was **not run**.
+  - `0` or `0.0` means it ran and the value is zero.
+
+### `summarize(dataset, clusters, density) -> SpatialSummary`
+- **Dataset-level values**, from `dataset.frame` by position:
+  - `incident_count`;
+  - `bounding_box = (min_lat, min_lon, max_lat, max_lon)`;
+  - `mean_center = (mean lat, mean lon)`, arithmetic means in degrees. This suits city-scale data and is **not** valid across the 180° meridian.
+- **From the cluster result**, all `None` without one:
+  - `cluster_count = len(clusters.clusters)`;
+  - `candidate_hotspot_count` = clusters with `is_candidate_hotspot`;
+  - `noise_share = (rows with cluster_label == -1) / accepted incidents`.
+- **`by_category`** counts `severity` and `incident_type` only when those columns exist. Keys are sorted, and missing values are counted last under `"(missing)"`. There is no date or location aggregation.
+- **`method_comparison`** is `compare_methods(clusters, density)` only when **both** results are given; otherwise it is `None`.
+- **`notes`** always state that:
+  - clusters and high-density locations are descriptive;
+  - KDE values are relative density scores, not counts or per-km² rates;
+  - candidate hotspots follow the DBSCAN `min_incidents` rule only;
+  - no significance test was run;
+  - the mean centre has the 180° limitation.
+
+  They also say which analyses weren't run and how many incidents fell outside the KDE grid.
+
+### `compare_methods(clusters, density) -> MethodComparison` (point-based)
+- **Eligibility:** an incident is eligible when `south ≤ lat ≤ north` and `west ≤ lon ≤ east` for `density.params["grid_extent"]`. The bounds are inclusive.
+  - Other incidents are counted in `outside_grid_count` and are **never snapped** to an edge node.
+  - The extent, not the axis span, decides eligibility. The last axis node may lie beyond the north and east edges.
+- **Lookup:** for each eligible incident, take the nearest latitude node and the nearest longitude node, and read the existing `density[row, col]`.
+  - A value exactly midway between two nodes goes to the **lower** (southern or western) node.
+  - The match is an approximation of up to half a cell per axis.
+  - KDE is not refitted and no new threshold is introduced.
+- **High density:** `density[row, col] >= high_density_threshold`, so a value equal to the threshold counts as high.
+- **2×2 table over eligible incidents:**
+
+  | | KDE high | KDE not high | row total |
+  |---|---|---|---|
+  | DBSCAN clustered (label ≠ −1) | `clustered_high` | `clustered_not_high` | `clustered_eligible` |
+  | DBSCAN noise (label = −1) | `noise_high` | `noise_not_high` | `noise_eligible` |
+  | column total | `high_density_eligible` | `not_high_density_eligible` | `eligible_count` |
+
+  `total_incidents = eligible_count + outside_grid_count`. Every eligible incident is in exactly one cell.
+- **Shares** (`None` when the denominator is 0, never 0):
+  - `clustered_high_share = clustered_high / clustered_eligible`;
+  - `noise_high_share = noise_high / noise_eligible`.
+- **`per_cluster`:** one `ClusterOverlap` per DBSCAN cluster, in `clusters.clusters` order, with:
+  - `incident_count = eligible_members + outside_grid_members`;
+  - `members_at_high_density`;
+  - `high_density_share = members_at_high_density / eligible_members`, or `None` when there are none;
+  - `is_candidate_hotspot`, copied from the DBSCAN summary.
+
+  `Σ members_at_high_density == clustered_high`.
+- **The table is descriptive.** It is not a test of statistical association, not significance, and not an independent validation of either method. No chi-square, Getis-Ord or other test is run.
+
+### Validation (raises `AnalysisError`; inputs are never changed)
+- **Dataset:** unusable or empty, or non-finite coordinates.
+- **Cluster result against the dataset:**
+  - the index must be equal and in the same order;
+  - `incident_id`, `latitude` and `longitude` must be equal by position.
+- **Cluster result internally:**
+  - integer labels ≥ −1;
+  - `noise_count` equals the number of `-1` labels;
+  - one summary per non-noise label, with no duplicates or missing ones;
+  - each summary's `incident_count` equals its labelled rows.
+- **Density result:**
+  - `params["n_points"]` must be an integer equal to the incident count;
+  - each axis must be 1-D, finite and strictly ascending;
+  - the density shape must equal `(len(grid_lat), len(grid_lon))`;
+  - values must be finite and ≥ 0, and the threshold finite;
+  - `params["grid_extent"]` must exist with finite south, north, west and east, must not be inverted, and must be covered by the axes.
+- **Both results together:** a grid with `grid_source == "data_extent_padded"` contains every point it was fitted on by construction. Any incident outside such a grid is therefore reported as a mismatch, not as outside the grid.
+- **Limitation:** the KDE result carries no incident IDs, so a matching `n_points` plus these extent checks cannot *prove* the KDE came from the same dataset. Provenance or hashing is out of scope for Stage 6.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

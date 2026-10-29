@@ -6,8 +6,8 @@
 | 2 | Dataset selection + validation | M1 | Verified dataset (source, licence) or a clearly labelled synthetic set; `load_raw_dataset`, `validate_and_clean`, quality report | Loading and validation done (`05cddbf`). **Dataset selection still open.** |
 | 3 | Data page + base map | M4 (M1) | Upload page, quality table, incident point map | Done (`5fc55b3`) |
 | 4 | DBSCAN | M2 | `run_dbscan`, `haversine_m`, documented candidate-hotspot criteria, parameter-sensitivity notes | Done (`230dbc5`). Parameter-sensitivity notes and threshold justification need a real dataset. |
-| 5 | KDE | M3 | `run_kde`, bandwidth rationale, high-density threshold | **Estimator, grid contract and tests done (awaiting review). Bandwidth rationale needs a real dataset.** |
-| 6 | Spatial statistics + method comparison | M3, M5 | `summarize`; overlap of DBSCAN clusters with KDE high-density cells | Not started |
+| 5 | KDE | M3 | `run_kde`, bandwidth rationale, high-density threshold | Done (`c8c2238`). Bandwidth rationale needs a real dataset. |
+| 6 | Spatial statistics + method comparison | M3, M5 | `summarize`; overlap of DBSCAN clusters with KDE high-density cells | Done: point-based overlap (the commit following `c8c2238`). |
 | 7 | Cluster/density maps + dashboard | M4 | Cluster and heat layers, Plotly charts, filters | Not started |
 | 8 | Orchestration + history | M5 | `run_analysis`, SQLite history page, end-to-end test | Not started |
 | 9 | Reports | M5 | CSV + PDF with parameters and limitations | Not started |

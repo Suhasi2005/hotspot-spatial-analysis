@@ -130,17 +130,76 @@ class DensityResult:
 
 
 @dataclass
+class ClusterOverlap:
+    """One DBSCAN cluster's members compared with KDE high-density grid nodes.
+
+    incident_count = eligible_members + outside_grid_members.
+    high_density_share = members_at_high_density / eligible_members, or None
+    when eligible_members == 0.
+    """
+
+    cluster_label: int
+    incident_count: int
+    eligible_members: int         # members inside the KDE grid extent
+    outside_grid_members: int
+    members_at_high_density: int
+    high_density_share: float | None
+    is_candidate_hotspot: bool    # copied from the ClusterSummary; NOT significance
+
+
+@dataclass
+class MethodComparison:
+    """Descriptive, point-based comparison of DBSCAN labels with KDE high density.
+
+    Each incident inside the KDE grid extent ("eligible") is read at its
+    nearest grid node and classed high-density if density >= threshold.
+    Incidents outside the extent are counted in outside_grid_count only.
+
+    2x2 table over eligible incidents (rows: DBSCAN, columns: KDE):
+        clustered_high | clustered_not_high | = clustered_eligible
+        noise_high     | noise_not_high     | = noise_eligible
+        = high_density_eligible | = not_high_density_eligible | = eligible_count
+    total_incidents = eligible_count + outside_grid_count.
+    Shares are None when their denominator is 0. Descriptive only: no
+    statistical association or significance is implied.
+    """
+
+    clustered_high: int
+    clustered_not_high: int
+    noise_high: int
+    noise_not_high: int
+    clustered_eligible: int
+    noise_eligible: int
+    high_density_eligible: int
+    not_high_density_eligible: int
+    eligible_count: int
+    outside_grid_count: int
+    total_incidents: int
+    clustered_high_share: float | None   # clustered_high / clustered_eligible
+    noise_high_share: float | None       # noise_high / noise_eligible
+    per_cluster: list[ClusterOverlap] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SpatialSummary:
-    """Descriptive statistics over the dataset and the analytical results."""
+    """Descriptive statistics over the dataset and the analytical results.
+
+    cluster_count, candidate_hotspot_count and noise_share are None when DBSCAN
+    was not run (0 / 0.0 mean it ran and the value is zero). noise_share =
+    noise incidents / accepted incidents. method_comparison is set only when
+    both DBSCAN and KDE results were supplied.
+    """
 
     incident_count: int
     bounding_box: tuple[float, float, float, float]  # min_lat, min_lon, max_lat, max_lon
-    mean_center: tuple[float, float]
-    cluster_count: int
-    candidate_hotspot_count: int
-    noise_share: float
+    mean_center: tuple[float, float]                 # (mean lat, mean lon) in degrees
+    cluster_count: int | None
+    candidate_hotspot_count: int | None
+    noise_share: float | None
     by_category: dict[str, dict[str, int]] = field(default_factory=dict)  # e.g. {"severity": {...}}
     notes: list[str] = field(default_factory=list)
+    method_comparison: MethodComparison | None = None
 
 
 @dataclass

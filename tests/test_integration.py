@@ -11,7 +11,7 @@ MODULE_CONTRACTS = {
     "modules.data_validator": ["validate_and_clean", "summarize_quality"],
     "modules.dbscan_analysis": ["run_dbscan", "metres_to_radians"],
     "modules.density_analysis": ["run_kde"],
-    "modules.spatial_statistics": ["summarize", "haversine_m"],
+    "modules.spatial_statistics": ["summarize", "compare_methods", "haversine_m"],
     "modules.map_visualization": ["build_incident_map", "build_cluster_map", "build_density_map"],
     "modules.app_controller": ["load_and_validate", "cluster_dataset", "estimate_density", "run_analysis"],
     "modules.database": ["init_db", "save_run", "list_runs"],

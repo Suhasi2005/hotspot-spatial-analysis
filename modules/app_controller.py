@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import BinaryIO
 
 from config.settings import AnalysisConfig, StudyArea
-from modules.contracts import AnalysisError, AnalysisRun, CleanDataset, ClusterResult
+from modules.contracts import AnalysisError, AnalysisRun, CleanDataset, ClusterResult, DensityResult
 from modules.data_manager import load_raw_dataset
 from modules.data_validator import validate_and_clean
 from modules.dbscan_analysis import run_dbscan
+from modules.density_analysis import run_kde
 
 
 def load_and_validate(
@@ -39,6 +40,17 @@ def cluster_dataset(dataset: CleanDataset, config: AnalysisConfig) -> ClusterRes
     if not dataset.report.is_usable:
         raise AnalysisError("Clustering skipped: the dataset is unusable (no accepted incidents).")
     return run_dbscan(dataset, config.dbscan, config.hotspot)
+
+
+def estimate_density(dataset: CleanDataset, config: AnalysisConfig) -> DensityResult:
+    """Run KDE on a validated dataset (the Stage 5 slice of the workflow).
+
+    Refuses an unusable dataset before KDE is reached. Uses config.kde and
+    config.study_area. Raises AnalysisError.
+    """
+    if not dataset.report.is_usable:
+        raise AnalysisError("Density estimation skipped: the dataset is unusable (no accepted incidents).")
+    return run_kde(dataset, config.kde, config.study_area)
 
 
 def run_analysis(

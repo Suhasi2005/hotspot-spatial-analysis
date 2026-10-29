@@ -12,7 +12,8 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `dbscan_analysis.metres_to_radians(distance_m)` | `float` | `float` | — | 1 (done) |
 | `dbscan_analysis.run_dbscan(dataset, params, criteria)` | `CleanDataset, DBSCANParams, CandidateHotspotCriteria` | `ClusterResult` | `AnalysisError` (unusable or empty dataset, invalid parameter, existing `cluster_label` column) | 4 (done) |
 | `app_controller.cluster_dataset(dataset, config)` | `CleanDataset, AnalysisConfig` | `ClusterResult` | `AnalysisError` | 4 (done) |
-| `density_analysis.run_kde(dataset, params, study_area=None)` | `CleanDataset, KDEParams, StudyArea?` | `DensityResult` | `AnalysisError` | 5 |
+| `density_analysis.run_kde(dataset, params, study_area=None, max_cells=MAX_GRID_CELLS)` | `CleanDataset, KDEParams, StudyArea?` | `DensityResult` | `AnalysisError` (unusable or empty dataset, invalid parameter or coordinate, grid too large, grid beyond ±85° latitude) | 5 (done) |
+| `app_controller.estimate_density(dataset, config)` | `CleanDataset, AnalysisConfig` | `DensityResult` | `AnalysisError` | 5 (done) |
 | `spatial_statistics.haversine_m(lat1, lon1, lat2, lon2)` | degrees (scalars) | metres | — | 4 (done, written by M2) |
 | `spatial_statistics.summarize(dataset, clusters, density)` | either result may be `None` | `SpatialSummary` | — | 6 |
 | `map_visualization.build_incident_map(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `folium.Map` | `AnalysisError` if unusable or empty | 3 (done) |
@@ -74,6 +75,45 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - Fewer points than `min_samples` is **not** an error: every point is noise and `clusters == []`.
 - **`params` records exactly what was passed to sklearn:** `eps_m`, `eps_rad`, `min_samples` (a Python `int`), `metric`, `algorithm`.
 - **`app_controller.cluster_dataset`** is a small additive entry point. It checks `is_usable`, then calls `run_dbscan` with `config.dbscan` and `config.hotspot`. The UI doesn't call it yet; the clustering page is Stage 7.
+
+## Stage 5 decisions (KDE)
+- **Coordinate convention (unchanged from Stage 1, now implemented):**
+  - `KernelDensity(metric="haversine", algorithm="ball_tree")` on `[lat, lon]` in radians, built by row position. This is a spherical KDE: no planar KDE on raw degrees and **no projected CRS**.
+  - `bandwidth_rad = bandwidth_m / 6,371,008.8`, the same sphere as DBSCAN.
+  - A projected CRS is still reserved for future per-km² measures. None is chosen, and Stage 5 needs none.
+- **Every accepted incident is used.** There is no sampling or truncation, and repeated coordinates are kept.
+- **Grid extent:**
+  - With a `study_area`, the grid is exactly that box. Points outside the box still contribute to the estimate.
+  - Otherwise it is the data bounding box padded by 3 bandwidths on each side, clipped to ±90 / ±180.
+  - A grid reaching beyond ±85° latitude is refused, because the longitude-step approximation breaks down there.
+  - A box that crosses the 180° meridian is not supported.
+- **Grid axes:**
+  - Ascending float64 degree values at which the density is evaluated.
+  - They start exactly at the south and west edges, with steps `lat_step = cell_m/110540` and `lon_step = cell_m/(111320·cos φ̄)`, where φ̄ is the grid's mean latitude.
+  - The last value lies at, or less than one step beyond, the north and east edges.
+  - Steps are recorded in `params` as `lat_step_deg` and `lon_step_deg`.
+- **Orientation:** `density.shape == (len(grid_lat), len(grid_lon))`, and `density[i, j]` is the value at `(grid_lat[i], grid_lon[j])`. Rows follow latitude, columns follow longitude. Tested against an independent estimator.
+- **Units of `density`:**
+  - The values are `exp(score_samples)` unchanged: an **estimated probability density per steradian** of the sphere. Each value is the estimator evaluated at one grid point; it is **not** an amount contained in a cell.
+  - The estimator itself integrates to 1 over the sphere, valid while the bandwidth is far smaller than the Earth's radius.
+  - On the grid, only the **area-weighted** sum `Σ density × cell area (sr)` approximates that integral. It was tested to within 0.5% when the grid covers the distribution.
+  - It falls **below 1** when the grid cuts off part of the distribution. With the 3-bandwidth padding about 0.1–0.2% is outside, which is why the synthetic run gave 0.9987. With a study area, any amount can be outside.
+  - The **plain sum of the grid values has no meaning**: it changes with the cell size. Neither sum is a count of incidents.
+  - They are labelled **relative density scores** (`params["density_units"]`).
+  - They are **not** incident counts, **not** incidents per km², and **not** risk adjusted for exposure (traffic, population or time). A high value is not statistical significance.
+  - Repeated coordinates add weight relative to other points. A dataset of N copies of one point gives exactly the same surface as one point.
+- **`high_density_threshold`** = `np.quantile(density, high_density_quantile)` over the grid cells.
+  - It is a **within-analysis classification only**: "high-density" means among the highest values of this grid.
+  - It depends on the grid extent, so it is not comparable across runs with different extents or datasets.
+  - It is not an absolute standard, and it is unrelated to DBSCAN's `min_incidents`.
+- **Validation (raises `AnalysisError`):**
+  - `bandwidth_m` and `grid_cell_m` must be finite real numbers > 0 and ≤ π·R. NaN, ±inf and bools are rejected; `KDEParams` construction leaves these open.
+  - `high_density_quantile` must be strictly between 0 and 1.
+  - The coordinates are re-checked as finite and in range.
+- **Memory and time limit:** `max_cells` (default `MAX_GRID_CELLS` = 250,000) is checked **before** any allocation. Larger grids are refused with a message to raise `grid_cell_m` or set a study area, never silently coarsened. A measured reference point: 1.86M cells took about 18 s, and 77k cells under 1 s.
+- **`params`** records `bandwidth_m`, `bandwidth_rad`, `kernel`, `grid_cell_m`, `metric`, `algorithm`, `lat_step_deg`, `lon_step_deg`, `grid_extent`, `grid_source`, `high_density_quantile`, `n_points` and `density_units`.
+- **`app_controller.estimate_density`** is additive. It checks `is_usable`, then calls `run_kde(dataset, config.kde, config.study_area)`. There is no UI yet; the heatmap is Stage 7.
+- **Other regions:** nothing is tied to one city. Very large or high-latitude areas are limited by the cell cap and the ±85° rule. For those, set a `study_area` and a coarser `grid_cell_m`.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

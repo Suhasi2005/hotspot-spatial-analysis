@@ -293,3 +293,108 @@ def test_cluster_page_with_non_consecutive_index():
     at = _app("Clusters (DBSCAN)", dataset)
     assert not at.exception
     assert list(at.session_state[CACHE_KEY]["clusters"].labeled_frame.index) == list(range(100, 138, 2))
+
+
+# =====================================================================================
+# Stage 8: Save button and History page (temporary database for every test in this file)
+# =====================================================================================
+
+import modules.dashboard as dashboard_module  # noqa: E402
+from modules.app_controller import record_run  # noqa: E402
+from modules.database import list_runs  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_history_db(tmp_path, monkeypatch):
+    """Point the dashboard's history at a temp file for every test in this module."""
+    db = tmp_path / "history" / "runs.sqlite3"
+    monkeypatch.setattr(dashboard_module, "HISTORY_DB_PATH", db)
+    return db
+
+
+def _summary_app(dataset):
+    at = AppTest.from_string(SCRIPT.replace("PAGE", repr("Summary")), default_timeout=120)
+    at.session_state["dataset"] = dataset
+    return at.run()
+
+
+def _button_keys(at):
+    return [b.key for b in at.button]
+
+
+def test_history_page_empty_state_and_reports_placeholder(isolated_history_db):
+    at = _app("History & Reports")
+    assert not at.exception
+    info = _messages(at)["info"]
+    assert any("No runs saved yet" in m for m in info)
+    assert any("Reports: Not implemented yet" in m and "Stage 9" in m for m in info)
+    assert not isolated_history_db.exists()                                 # reading never creates it
+
+
+def test_save_button_saves_exactly_once_per_analysis(isolated_history_db):
+    at = _summary_app(_dataset())
+    assert "save_run" in _button_keys(at)
+    at.button(key="save_run").click().run()
+    assert not at.exception
+    saved_id = at.session_state[CACHE_KEY]["saved_run_id"]
+    assert [r["run_id"] for r in list_runs(db_path=isolated_history_db)] == [saved_id]
+    assert any(saved_id in s.value for s in at.success)
+
+    at.run()                                                                # rerun: same analysis
+    assert "save_run" not in _button_keys(at)
+    assert any("is saved in the history as run" in s.value for s in at.success)
+    assert len(list_runs(db_path=isolated_history_db)) == 1
+
+
+def test_new_parameters_make_a_new_saveable_analysis(isolated_history_db):
+    at = _summary_app(_dataset())
+    at.button(key="save_run").click().run()
+    first = at.session_state[CACHE_KEY]["saved_run_id"]
+    at.number_input(key="p_eps_m").set_value(300.0).run()                   # new analysis run
+    assert "save_run" in _button_keys(at) and at.session_state[CACHE_KEY].get("saved_run_id") is None
+    at.button(key="save_run").click().run()
+    runs = list_runs(db_path=isolated_history_db)
+    assert len(runs) == 2 and runs[1]["run_id"] == first
+    assert {r["config"].dbscan.eps_m for r in runs} == {250.0, 300.0}       # each row keeps its own config
+
+
+def test_save_is_not_offered_when_an_analysis_failed(isolated_history_db):
+    at = _summary_app(_dataset())
+    at.number_input(key="p_grid_cell_m").set_value(1.0).run()               # KDE grid cap -> KDE fails
+    assert not at.exception
+    assert "save_run" not in _button_keys(at)
+    assert any("Saving is available only when DBSCAN, KDE" in c for c in _messages(at)["caption"])
+    assert not isolated_history_db.exists()
+
+
+def test_history_page_lists_saved_runs_newest_first(isolated_history_db):
+    dataset = _dataset()
+    clusters = cluster_dataset(dataset, DEFAULT_ANALYSIS_CONFIG)
+    density = estimate_density(dataset, DEFAULT_ANALYSIS_CONFIG)
+    complete = record_run(dataset, DEFAULT_ANALYSIS_CONFIG, clusters, density,
+                          summarize_results(dataset, clusters, density), db_path=isolated_history_db)
+    raw = pd.DataFrame({"incident_id": [""], "latitude": ["1"], "longitude": ["2"]}, dtype=str)
+    unusable = record_run(validate_and_clean(raw, "empty.csv"), DEFAULT_ANALYSIS_CONFIG, None, None, None,
+                          db_path=isolated_history_db)
+    at = _app("History & Reports")
+    assert not at.exception
+    table = at.dataframe[0].value
+    assert table["run id"].tolist() == [unusable.run_id, complete.run_id]
+    assert table["status"].tolist() == ["unusable dataset (no analysis)", "complete"]
+    assert table["clusters"].astype(str).tolist() == ["Not run", "2"]
+    assert table["eps_m"].tolist() == [250.0, 250.0]
+
+
+def test_database_errors_are_visible_on_both_pages(isolated_history_db, monkeypatch):
+    blocker = isolated_history_db.parent / "is_a_folder"
+    blocker.mkdir(parents=True)
+    monkeypatch.setattr(dashboard_module, "HISTORY_DB_PATH", blocker)        # a folder, not a database
+    history = _app("History & Reports")
+    assert not history.exception
+    assert any("Could not read the run history" in e for e in _messages(history)["error"])
+
+    at = _summary_app(_dataset())
+    at.button(key="save_run").click().run()
+    assert not at.exception
+    assert any("Could not save the run" in e for e in _messages(at)["error"])
+    assert at.session_state[CACHE_KEY].get("saved_run_id") is None          # failure does not mark it saved

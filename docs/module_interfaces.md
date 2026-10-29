@@ -26,8 +26,10 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `map_visualization.density_overlay_rgba(result, threshold_mask=False)` | `DensityResult` | `uint8` array `(len(grid_lat), len(grid_lon), 4)`, north row first | `AnalysisError` | 7 (done) |
 | `spatial_statistics.incidents_by_period(dataset)` | `CleanDataset` | `dict` (see Stage 7 decisions) | `AnalysisError` (unusable or empty dataset) | 7 (done) |
 | `app_controller.summarize_results(dataset, clusters, density)` | as `summarize` | `SpatialSummary` | as `summarize` | 7 (done) |
-| `app_controller.run_analysis(source, config, source_name=None, persist=True)` | file + `AnalysisConfig` | `AnalysisRun` | propagates the errors above | 8 |
-| `database.init_db / save_run / list_runs` | `AnalysisRun`, `Path` | `None` / `list[dict]` | `sqlite3.Error` (not swallowed) | 8 |
+| `app_controller.run_analysis(source, config, source_name=None, persist=True, *, db_path=DB_PATH)` | file + `AnalysisConfig` | `AnalysisRun` | propagates `DataValidationError`, `AnalysisError`, `sqlite3.Error`, `OSError`; failed runs are not saved | 8 |
+| `app_controller.record_run(dataset, config, clusters, density, summary, *, db_path=DB_PATH)` | already computed results | `AnalysisRun` (saved) | `AnalysisError` (partial or mismatched results); storage errors propagate | 8 |
+| `database.init_db(db_path) / save_run(run, db_path) / list_runs(limit=50, db_path)` | `AnalysisRun`, `Path` | `None` / `None` / `list[dict]` | `sqlite3.Error`, `OSError`, `ValueError` (not swallowed) | 8 |
+| `database.config_to_json(config) / config_from_json(text)` | `AnalysisConfig` / `str` | `str` / `AnalysisConfig` | `ValueError` (NaN, unknown schema version) | 8 |
 | `report_generator.export_csv(run, out_dir)` | `AnalysisRun` | `list[Path]` | `OSError` | 9 |
 | `report_generator.export_pdf(run, out_dir)` | `AnalysisRun` | `Path` | `OSError` | 9 |
 
@@ -250,6 +252,53 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 - **Time zones:** time-zone-aware values, including mixed offsets that the validator leaves as an object column, are converted to UTC; naive values are used as-is.
 - **Period:** chosen from the span between the earliest and latest dates: ≤ 62 days → `"day"`, ≤ 1096 days → `"month"`, otherwise `"year"`. Every period between the first and the last is listed, with 0 where there are no incidents.
 - **Returns** `{"column_present", "period", "counts": DataFrame[period_start, incident_count], "dated_incidents", "missing_dates"}`.
+
+## Stage 8 decisions (orchestration and history)
+- **`run_analysis`:** `load_and_validate` (with `config.study_area`) → if usable: `cluster_dataset`, `estimate_density`, `summarize_results` → `AnalysisRun` (`run_id` = `uuid4().hex`, `created_at` = UTC now) → `save_run` when `persist=True`.
+  - **An unusable dataset** stops before DBSCAN and KDE; the run has `None` results and is still saved.
+  - **Analysis or load errors propagate**, and **failed runs are never saved** (decision A).
+  - **`persist=False`** never opens or creates the database.
+  - **`db_path`** is a keyword-only argument (decision D), so tests and checks use temporary databases.
+- **`record_run`** (decision D) saves results that were already computed, for the dashboard's Save button. It shares the run-building code with `run_analysis`.
+- **What `record_run` enforces.** Every check runs **before** anything is written, and any failure raises `AnalysisError`, so a rejected call never creates or changes the database.
+  1. **Complete run:** for a usable dataset, the clusters, density and summary must all be present.
+  2. **Same dataset:** `summary == summarize_results(dataset, clusters, density)`. This includes the Stage 6 check that index, IDs and coordinates match.
+  3. **Configuration matches the results.** Every mismatch found is reported in one message.
+     - **DBSCAN:** `clusters.params` `eps_m` and `min_samples` equal `config.dbscan`.
+     - **KDE:** `density.params` `bandwidth_m`, `kernel`, `grid_cell_m` and `high_density_quantile` equal `config.kde`.
+     - **Study area, if none is configured:** the KDE grid must come from the data extent (`grid_source == "data_extent_padded"`).
+     - **Study area, if one is configured:** the grid source must be `"study_area"` and `grid_extent` must equal the box. Also, no accepted incident may lie outside the box, which the validator guarantees for a dataset validated with that box.
+     - **Candidate hotspots:** every cluster's `is_candidate_hotspot` must equal `incident_count >= config.hotspot.min_incidents`.
+  4. **Unusable dataset:** all three results must be `None`.
+- **What `record_run` cannot check:**
+  - **`random_seed` and `min_density_per_km2`** affect no result in the current algorithms, so any value is accepted.
+  - **`min_incidents`** is visible only through the candidate flags; `ClusterResult` records no criteria. Values that give identical flags can't be told apart (e.g. 7 and 8 for clusters of 12 and 6). Both describe the same results.
+  - **An unusable dataset** has no results to compare. The configuration is stored as given, and whether the dataset was validated with that `study_area` can't be verified.
+  - **Fixed algorithm constants** such as the 3-bandwidth padding aren't part of `AnalysisConfig` and aren't saved. See development plan Open item 4.
+- **`database`:**
+  - **`init_db`** creates the folder and table; it is safe to call repeatedly.
+  - **`save_run`** stores `created_at` as UTC ISO-8601 with microseconds, so text order equals time order; naive datetimes are rejected.
+    - The cluster columns are NULL when DBSCAN didn't run.
+    - `report_paths_json` stays NULL until Stage 9.
+    - A duplicate `run_id` raises `IntegrityError`, and the failed insert is rolled back.
+  - **`list_runs`** returns runs newest first (`created_at`, then `run_id`), with a validated `limit`.
+    - It opens the database **read-only** and **never creates it**; a missing file returns `[]`.
+    - It decodes `config_json` into `config` (an `AnalysisConfig`) and `report_paths_json` into `report_paths`.
+    - A file without the history table raises `OperationalError`.
+  - **Connections** commit on success, roll back on error, and are always closed.
+- **Configuration round trip:**
+  - `config_json = {"schema_version": 1, "config": asdict(config)}`, written with `allow_nan=False`.
+  - `config_from_json(config_to_json(c)) == c` exactly, floats bit for bit. NaN is refused before anything is written.
+- **Dashboard:**
+  - **Summary page:**
+    - A **"Save this run to history"** button (decision C) appears only when DBSCAN, KDE and the summary all completed.
+    - **Saved-once guard:** the saved `run_id` is kept on the analysis cache entry, which belongs to exactly one dataset object plus one parameter set. So the same analysis can't be saved twice, while a new parameter set or dataset can be saved once too.
+    - **Errors on save** are shown as "Could not save the run: …", and the run is not marked as saved.
+  - **History & Reports page:**
+    - Lists up to 50 runs, newest first, with the stored parameters; NULL results are shown as "Not run" or "unusable dataset".
+    - **Errors on read** are shown as "Could not read the run history: …".
+    - A notice says reports arrive in Stage 9.
+  - **History location:** the page and button use the module setting `HISTORY_DB_PATH`, which defaults to `config.settings.DB_PATH` and can be redirected with `HOTSPOT_DB_PATH`.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

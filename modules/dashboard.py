@@ -7,6 +7,7 @@ analytical logic.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import asdict
 from typing import Any
 
@@ -16,8 +17,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
 
-from config.settings import DEFAULT_ANALYSIS_CONFIG, AnalysisConfig, CandidateHotspotCriteria, DBSCANParams, KDEParams
-from modules.app_controller import cluster_dataset, estimate_density, load_and_validate, summarize_results
+from config.settings import DB_PATH, DEFAULT_ANALYSIS_CONFIG, AnalysisConfig, CandidateHotspotCriteria, DBSCANParams, KDEParams
+from modules.app_controller import cluster_dataset, estimate_density, load_and_validate, record_run, summarize_results
+from modules.database import list_runs
 from modules.contracts import CLUSTER_LABEL_COLUMN, NOISE_LABEL, AnalysisError, CleanDataset, ClusterResult, DataValidationError
 from modules.data_manager import list_sample_datasets
 from modules.data_validator import summarize_quality
@@ -39,12 +41,20 @@ PREVIEW_ROWS = 100
 MISSING_LABEL = "(missing)"
 NOT_RUN = "Not run"
 CACHE_KEY = "analysis_cache"
+# History database used by the Save button and the History page. Read at call
+# time so tests can point it at a temporary file; the app run itself can be
+# redirected with the HOTSPOT_DB_PATH environment variable (config.settings).
+HISTORY_DB_PATH = DB_PATH
+HISTORY_LIMIT = 50
 
 
 def render_page(name: str) -> None:
-    """Render one page. History & Reports stays a placeholder until Stages 8-9."""
+    """Render one page. History & Reports shows saved runs; reports arrive in Stage 9."""
     if name == "Data":
         render_data_page()
+        return
+    if name == "History & Reports":
+        _render_history_page()
         return
     if name not in ANALYSIS_PAGES:
         st.header(name)
@@ -388,6 +398,71 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
 
     st.subheader("Notes and caveats")
     st.markdown("\n".join(f"- {n}" for n in s.notes + (mc.notes if mc else [])))
+
+    _render_save_section(dataset, results)
+
+
+# --- history (Stage 8) ---------------------------------------------------------------------
+
+
+def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None:
+    """Explicit save of the analysis shown on screen; at most once per analysis run.
+
+    The guard lives in the cache entry, which belongs to exactly one analysis
+    (this dataset object + these parameters). New parameters or a new dataset
+    create a new entry, so that run can be saved once too.
+    """
+    st.subheader("Save to history")
+    if results["cluster_error"] or results["density_error"] or results["summary"] is None:
+        st.caption("Saving is available only when DBSCAN, KDE and the summary all completed.")
+        return
+    if results.get("saved_run_id"):
+        st.success(f"This analysis is saved in the history as run {results['saved_run_id']}.")
+        return
+    if st.button("Save this run to history", key="save_run"):
+        try:
+            run = record_run(dataset, results["config"], results["clusters"], results["density"],
+                             results["summary"], db_path=HISTORY_DB_PATH)
+        except (sqlite3.Error, OSError, ValueError, AnalysisError) as exc:
+            st.error(f"Could not save the run: {exc}")
+            return
+        results["saved_run_id"] = run.run_id
+        st.success(f"Saved to the history as run {run.run_id}.")
+
+
+def _render_history_page() -> None:
+    st.header("History & Reports")
+    st.subheader("Saved runs")
+    try:
+        runs = list_runs(HISTORY_LIMIT, db_path=HISTORY_DB_PATH)
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        st.error(f"Could not read the run history: {exc}")
+        runs = None
+    if runs == []:
+        st.info("No runs saved yet. Run an analysis and use 'Save this run to history' on the Summary page.")
+    elif runs:
+        st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
+        st.dataframe(pd.DataFrame([_history_row(r) for r in runs]), hide_index=True, width="stretch")
+    st.subheader("Reports")
+    st.info("Reports: Not implemented yet — see docs/development_plan.md (Stage 9).")
+
+
+def _history_row(run: dict[str, Any]) -> dict[str, Any]:
+    c = run["config"]
+    usable = run["valid_rows"] > 0
+    return {
+        "saved (UTC)": run["created_at"].replace("T", " ")[:19],
+        "run id": run["run_id"],
+        "source": run["source_name"],
+        "accepted / total rows": f"{run['valid_rows']:,} / {run['total_rows']:,}",
+        "status": "complete" if usable else "unusable dataset (no analysis)",
+        "clusters": NOT_RUN if run["cluster_count"] is None else run["cluster_count"],
+        "candidate hotspots": NOT_RUN if run["candidate_hotspot_count"] is None else run["candidate_hotspot_count"],
+        "noise incidents": NOT_RUN if run["noise_count"] is None else run["noise_count"],
+        "eps_m": c.dbscan.eps_m, "min_samples": c.dbscan.min_samples, "min_incidents": c.hotspot.min_incidents,
+        "bandwidth_m": c.kde.bandwidth_m, "grid_cell_m": c.kde.grid_cell_m,
+        "high_density_quantile": c.kde.high_density_quantile,
+    }
 
 
 def _share(value: float | None) -> str:

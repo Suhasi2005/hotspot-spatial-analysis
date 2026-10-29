@@ -9,8 +9,8 @@
 | 5 | KDE | M3 | `run_kde`, bandwidth rationale, high-density threshold | Done (`c8c2238`). Bandwidth rationale needs a real dataset. |
 | 6 | Spatial statistics + method comparison | M3, M5 | `summarize`; overlap of DBSCAN clusters with KDE high-density cells | Done (`ec81f8d`): point-based overlap. |
 | 7 | Cluster/density maps + dashboard | M4 | Cluster and heat layers, Plotly charts, filters | Done (`e054d97`): KDE grid image overlay, cluster map with all circles, display-only filters. |
-| 8 | Orchestration + history | M5 | `run_analysis`, SQLite history page, end-to-end test | Done (the commit following `e054d97`): `run_analysis`, `record_run` with configuration checks, SQLite history page. |
-| 9 | Reports | M5 | CSV + PDF with parameters and limitations | Not started |
+| 8 | Orchestration + history | M5 | `run_analysis`, SQLite history page, end-to-end test | Done (`b0b2af5`): `run_analysis`, `record_run` with configuration checks, SQLite history page. |
+| 9 | Reports | M5 | CSV + PDF with parameters and limitations | Done (the commit following `b0b2af5`): incidents/clusters CSV, PDF with limitations and open items, `generate_reports` with rollback, downloads. |
 | 10 | Evaluation + final verification | All | Sensitivity analysis, full test run, docs updated to match the code, demo | Not started |
 
 ## Responsibilities

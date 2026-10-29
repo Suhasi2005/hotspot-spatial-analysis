@@ -18,10 +18,13 @@ MODULE_CONTRACTS = {
     ],
     "modules.app_controller": [
         "load_and_validate", "cluster_dataset", "estimate_density", "summarize_results", "run_analysis",
-        "record_run",
+        "record_run", "generate_reports",
     ],
-    "modules.database": ["init_db", "save_run", "list_runs", "config_to_json", "config_from_json"],
-    "modules.report_generator": ["export_csv", "export_pdf"],
+    "modules.database": [
+        "init_db", "save_run", "list_runs", "config_to_json", "config_from_json",
+        "get_run", "set_report_paths", "resolve_report_path",
+    ],
+    "modules.report_generator": ["export_csv", "export_pdf", "report_sections", "pdf_markup"],
 }
 
 
@@ -348,3 +351,188 @@ def test_run_analysis_does_not_modify_the_source_file(tmp_path):
     before = csv.read_bytes()
     run_analysis(csv, DEFAULT_ANALYSIS_CONFIG, db_path=tmp_path / "h.sqlite3")
     assert csv.read_bytes() == before
+
+
+# --- Stage 9: generate_reports (temporary reports folder and database only) ----------------------
+
+
+@pytest.fixture
+def saved_run(tmp_path):
+    """A complete run saved to a temp history, plus sentinel files that must survive any rollback."""
+    from config.settings import DEFAULT_ANALYSIS_CONFIG
+    from modules.app_controller import run_analysis
+
+    db = tmp_path / "history.sqlite3"
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "unrelated.txt").write_text("keep", encoding="utf-8")
+    (reports / "other_run").mkdir()
+    (reports / "other_run" / "report.pdf").write_bytes(b"%PDF-keep")
+    run = run_analysis(_csv(tmp_path), DEFAULT_ANALYSIS_CONFIG, db_path=db)
+    return run, db, reports
+
+
+def _sentinels_intact(reports):
+    assert (reports / "unrelated.txt").read_text(encoding="utf-8") == "keep"
+    assert (reports / "other_run" / "report.pdf").read_bytes() == b"%PDF-keep"
+
+
+def _only_sentinels(reports):
+    assert sorted(p.name for p in reports.iterdir()) == ["other_run", "unrelated.txt"]   # no staging left
+
+
+def test_generate_reports_writes_registers_and_matches_direct_export(saved_run, tmp_path):
+    from modules.app_controller import generate_reports
+    from modules.database import get_run, resolve_report_path
+    from modules.report_generator import export_csv, export_pdf
+
+    run, db, reports = saved_run
+    paths = generate_reports(run, reports, db_path=db)
+    assert [p.relative_to(reports).as_posix() for p in paths] == [
+        f"{run.run_id}/incidents.csv", f"{run.run_id}/clusters.csv", f"{run.run_id}/report.pdf"]
+    stored = get_run(run.run_id, db)["report_paths"]
+    assert stored == [p.relative_to(reports).as_posix() for p in paths]
+    assert [resolve_report_path(s, reports) for s in stored] == [p.resolve() for p in paths]
+    direct = tmp_path / "direct"
+    direct.mkdir()
+    for produced, reference in zip(paths, export_csv(run, direct) + [export_pdf(run, direct)]):
+        assert produced.read_bytes() == reference.read_bytes()
+    _sentinels_intact(reports)
+
+
+def test_generate_reports_creates_a_missing_reports_folder(saved_run, tmp_path):
+    from modules.app_controller import generate_reports
+
+    run, db, _ = saved_run
+    fresh = tmp_path / "new_reports_root"
+    paths = generate_reports(run, fresh, db_path=db)
+    assert all(p.exists() and p.parent == fresh / run.run_id for p in paths)
+
+
+def test_unsaved_unusable_and_incomplete_runs_are_refused_before_any_file(tmp_path):
+    from dataclasses import replace
+
+    from config.settings import DEFAULT_ANALYSIS_CONFIG
+    from modules.app_controller import generate_reports, run_analysis
+    from modules.contracts import AnalysisError
+
+    db, reports = tmp_path / "h.sqlite3", tmp_path / "reports"
+    unsaved = run_analysis(_csv(tmp_path), DEFAULT_ANALYSIS_CONFIG, persist=False)
+    with pytest.raises(AnalysisError, match="saved to the history"):
+        generate_reports(unsaved, reports, db_path=db)
+    unusable = run_analysis(_csv(tmp_path, ["incident_id,latitude,longitude", ",1,2"], "u.csv"),
+                            DEFAULT_ANALYSIS_CONFIG, db_path=db)
+    with pytest.raises(AnalysisError, match="usable"):
+        generate_reports(unusable, reports, db_path=db)
+    saved = run_analysis(_csv(tmp_path), DEFAULT_ANALYSIS_CONFIG, db_path=db)
+    with pytest.raises(AnalysisError, match="complete"):
+        generate_reports(replace(saved, density=None), reports, db_path=db)
+    assert not reports.exists()
+
+
+def test_run_that_does_not_match_its_history_row_is_refused(saved_run):
+    from dataclasses import replace
+
+    from config.settings import AnalysisConfig, DBSCANParams
+    from modules.app_controller import generate_reports
+    from modules.contracts import AnalysisError
+
+    run, db, reports = saved_run
+    altered = replace(run, config=AnalysisConfig(dbscan=DBSCANParams(eps_m=999.0)))
+    with pytest.raises(AnalysisError, match="does not match"):
+        generate_reports(altered, reports, db_path=db)
+    _only_sentinels(reports)
+
+
+def test_reports_are_generated_once_and_conflicts_are_refused(saved_run):
+    from modules.app_controller import generate_reports
+    from modules.contracts import AnalysisError
+    from modules.database import get_run
+
+    run, db, reports = saved_run
+    (reports / run.run_id).mkdir()                                      # pre-existing folder with a file
+    (reports / run.run_id / "mine.txt").write_text("mine", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        generate_reports(run, reports, db_path=db)
+    assert (reports / run.run_id / "mine.txt").read_text(encoding="utf-8") == "mine"
+    assert get_run(run.run_id, db)["report_paths"] is None              # database unchanged
+    (reports / run.run_id / "mine.txt").unlink()
+    (reports / run.run_id).rmdir()
+    generate_reports(run, reports, db_path=db)
+    with pytest.raises(AnalysisError, match="already registered"):
+        generate_reports(run, reports, db_path=db)
+
+
+@pytest.mark.parametrize("failure", ["pdf_error", "truncated_pdf", "csv_error"])
+def test_export_failure_rolls_back_files_and_leaves_database_unchanged(saved_run, monkeypatch, failure):
+    import modules.app_controller as controller
+    from modules.database import get_run
+
+    run, db, reports = saved_run
+    if failure == "pdf_error":
+        def broken(run_, out_dir):
+            raise OSError("simulated PDF failure")
+        monkeypatch.setattr(controller, "export_pdf", broken)
+    elif failure == "truncated_pdf":
+        def truncated(run_, out_dir):
+            path = out_dir / "report.pdf"
+            path.write_bytes(b"%PDF-1.4 truncated")
+            return path
+        monkeypatch.setattr(controller, "export_pdf", truncated)
+    else:
+        def broken_csv(run_, out_dir):
+            (out_dir / "incidents.csv").write_bytes(b"\xef\xbb\xbfpartial")
+            raise OSError("simulated CSV failure")
+        monkeypatch.setattr(controller, "export_csv", broken_csv)
+    with pytest.raises(OSError):
+        controller.generate_reports(run, reports, db_path=db)
+    _only_sentinels(reports)
+    _sentinels_intact(reports)
+    assert get_run(run.run_id, db)["report_paths"] is None
+
+
+def test_registration_failure_removes_the_moved_folder(saved_run, monkeypatch):
+    import sqlite3
+
+    import modules.app_controller as controller
+    from modules.database import get_run
+
+    run, db, reports = saved_run
+
+    def failing_register(*args, **kwargs):
+        raise sqlite3.OperationalError("simulated database failure")
+    monkeypatch.setattr(controller, "set_report_paths", failing_register)
+    with pytest.raises(sqlite3.OperationalError):
+        controller.generate_reports(run, reports, db_path=db)
+    _only_sentinels(reports)
+    _sentinels_intact(reports)
+    assert get_run(run.run_id, db)["report_paths"] is None
+
+
+def test_failed_attempt_removes_a_reports_folder_it_created(tmp_path, monkeypatch):
+    import modules.app_controller as controller
+    from config.settings import DEFAULT_ANALYSIS_CONFIG
+
+    db = tmp_path / "h.sqlite3"
+    run = controller.run_analysis(_csv(tmp_path), DEFAULT_ANALYSIS_CONFIG, db_path=db)
+
+    def broken(run_, out_dir):
+        raise OSError("simulated")
+    monkeypatch.setattr(controller, "export_pdf", broken)
+    fresh = tmp_path / "created_by_attempt"
+    with pytest.raises(OSError):
+        controller.generate_reports(run, fresh, db_path=db)
+    assert not fresh.exists()
+
+
+def test_generate_reports_does_not_mutate_the_run(saved_run):
+    import copy
+
+    from modules.app_controller import generate_reports
+
+    run, db, reports = saved_run
+    snapshot = (run.run_id, run.created_at, run.config, copy.deepcopy(run.summary),
+                run.clusters.labeled_frame.copy(deep=True), run.dataset.frame.copy(deep=True))
+    generate_reports(run, reports, db_path=db)
+    assert (run.run_id, run.created_at, run.config, run.summary) == snapshot[:4]
+    assert run.clusters.labeled_frame.equals(snapshot[4]) and run.dataset.frame.equals(snapshot[5])

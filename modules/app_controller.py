@@ -6,12 +6,15 @@ Single entry point the UI calls: load -> validate -> DBSCAN -> KDE -> summary
 
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
-from config.settings import DB_PATH, AnalysisConfig, StudyArea
+from config.settings import DB_PATH, REPORTS_DIR, AnalysisConfig, StudyArea
 from modules.contracts import (
     AnalysisError,
     AnalysisRun,
@@ -21,7 +24,8 @@ from modules.contracts import (
     SpatialSummary,
 )
 from modules.data_manager import load_raw_dataset
-from modules.database import save_run
+from modules.database import get_run, save_run, set_report_paths
+from modules.report_generator import export_csv, export_pdf
 from modules.data_validator import validate_and_clean
 from modules.dbscan_analysis import run_dbscan
 from modules.density_analysis import run_kde
@@ -179,6 +183,86 @@ def _check_config_matches_results(
 
     if problems:
         raise AnalysisError("Configuration does not match these results; the run was not saved. " + "; ".join(problems))
+
+
+def generate_reports(
+    run: AnalysisRun,
+    out_dir: Path = REPORTS_DIR,
+    *,
+    db_path: Path = DB_PATH,
+) -> list[Path]:
+    """Write incidents.csv, clusters.csv and report.pdf for a saved run and register them.
+
+    Steps: (1) check eligibility — a usable dataset with complete results, a
+    history row for run.run_id whose config and row counts match the run, and
+    no reports registered yet; (2) refuse if out_dir/<run_id> already exists
+    (never overwrite; once per run); (3) write the files into a new temporary
+    folder inside out_dir; (4) check them (non-empty CSVs with a UTF-8 BOM, a
+    PDF with %PDF-/%%EOF); (5) rename the temporary folder to out_dir/<run_id>;
+    (6) register the paths, relative to out_dir, with set_report_paths.
+
+    Not a true transaction across disk and database: on any failure the
+    folders created by this attempt (and out_dir itself if this attempt
+    created it and it is empty) are removed, the database is left unchanged,
+    and the error is raised. Nothing that existed before is deleted. The run
+    is not mutated. Returns the final absolute paths.
+    """
+    _check_report_eligibility(run, db_path)
+    out_dir = Path(out_dir)
+    final_dir = out_dir / run.run_id
+    if final_dir.exists():
+        raise FileExistsError(f"Reports folder {final_dir.name!r} already exists; reports are generated once per run.")
+
+    created_root = not out_dir.exists()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    staging: Path | None = None
+    moved = False
+    try:
+        staging = Path(tempfile.mkdtemp(prefix=f".{run.run_id}.", dir=out_dir))
+        files = export_csv(run, staging) + [export_pdf(run, staging)]
+        _check_report_files(files)
+        os.rename(staging, final_dir)                       # fails if final_dir appeared meanwhile (Windows)
+        moved = True
+        final_paths = [final_dir / f.name for f in files]
+        set_report_paths(run.run_id, final_paths, db_path, reports_dir=out_dir)
+        return final_paths
+    except BaseException:
+        if moved:
+            shutil.rmtree(final_dir, ignore_errors=True)    # created by this attempt's rename
+        elif staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+        if created_root:
+            try:
+                out_dir.rmdir()                              # only if empty
+            except OSError:
+                pass
+        raise
+
+
+def _check_report_eligibility(run: AnalysisRun, db_path: Path) -> None:
+    if not run.dataset.report.is_usable:
+        raise AnalysisError("Reports are only generated for usable datasets.")
+    if run.clusters is None or run.density is None or run.summary is None:
+        raise AnalysisError("Reports are only generated for complete runs (DBSCAN, KDE and summary).")
+    row = get_run(run.run_id, db_path)
+    if row is None:
+        raise AnalysisError("Reports are only generated for runs saved to the history; save this run first.")
+    if (row["config"], row["source_name"], row["total_rows"], row["valid_rows"]) != (
+        run.config, run.dataset.source_name, run.dataset.report.total_rows, run.dataset.report.valid_rows
+    ):
+        raise AnalysisError("The saved history row does not match this run; reports were not generated.")
+    if row["report_paths"] is not None:
+        raise AnalysisError("Reports are already registered for this run; they are generated once per run.")
+
+
+def _check_report_files(files: list[Path]) -> None:
+    for path in files:
+        data = path.read_bytes()
+        if path.suffix == ".csv":
+            if not data.startswith(b"\xef\xbb\xbf") or len(data) <= 3:
+                raise OSError(f"Generated {path.name} is empty or not UTF-8 with BOM.")
+        elif not (data.startswith(b"%PDF-") and data.rstrip().endswith(b"%%EOF")):
+            raise OSError(f"Generated {path.name} is not a complete PDF.")
 
 
 def _build_run(

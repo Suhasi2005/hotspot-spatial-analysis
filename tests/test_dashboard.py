@@ -186,7 +186,7 @@ def test_data_and_history_pages_still_render():
     data = _app("Data")
     assert not data.exception and [h.value for h in data.header] == ["Data"]
     history = _app("History & Reports")
-    assert not history.exception and any("Not implemented yet" in m for m in _messages(history)["info"])
+    assert not history.exception and any("No reports registered yet" in m for m in _messages(history)["info"])
 
 
 def test_clusters_page_with_valid_data():
@@ -327,7 +327,7 @@ def test_history_page_empty_state_and_reports_placeholder(isolated_history_db):
     assert not at.exception
     info = _messages(at)["info"]
     assert any("No runs saved yet" in m for m in info)
-    assert any("Reports: Not implemented yet" in m and "Stage 9" in m for m in info)
+    assert any("No reports registered yet" in m for m in info)
     assert not isolated_history_db.exists()                                 # reading never creates it
 
 
@@ -398,3 +398,96 @@ def test_database_errors_are_visible_on_both_pages(isolated_history_db, monkeypa
     assert not at.exception
     assert any("Could not save the run" in e for e in _messages(at)["error"])
     assert at.session_state[CACHE_KEY].get("saved_run_id") is None          # failure does not mark it saved
+
+
+# =====================================================================================
+# Stage 9: report generation and downloads (temporary reports folder for every test)
+# =====================================================================================
+
+from modules.database import get_run  # noqa: E402
+from modules.report_generator import CSV_SAFETY_WARNING  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_reports_dir(tmp_path, monkeypatch):
+    reports = tmp_path / "reports_root"
+    monkeypatch.setattr(dashboard_module, "HISTORY_REPORTS_DIR", reports)
+    return reports
+
+
+def _downloads(at):
+    return [el.proto.label for el in at.get("download_button")]
+
+
+def _saved_summary_app():
+    at = _summary_app(_dataset())
+    at.button(key="save_run").click().run()
+    return at
+
+
+def test_generate_reports_once_with_downloads(isolated_reports_dir, isolated_history_db):
+    at = _saved_summary_app()
+    assert "generate_reports" in _button_keys(at)
+    assert any(CSV_SAFETY_WARNING == w for w in _messages(at)["warning"])
+    at.button(key="generate_reports").click().run()
+    assert not at.exception
+    assert any("Reports generated" in s.value for s in at.success)
+    assert _downloads(at) == ["Download incidents.csv", "Download clusters.csv", "Download report.pdf"]
+    run_id = at.session_state[CACHE_KEY]["saved_run_id"]
+    assert sorted(p.name for p in (isolated_reports_dir / run_id).iterdir()) == ["clusters.csv", "incidents.csv",
+                                                                                  "report.pdf"]
+    assert get_run(run_id, isolated_history_db)["report_paths"] == [
+        f"{run_id}/incidents.csv", f"{run_id}/clusters.csv", f"{run_id}/report.pdf"]
+
+    at.run()                                                                   # same run again
+    assert "generate_reports" not in _button_keys(at)
+    assert len(_downloads(at)) == 3
+    assert [p.name for p in isolated_reports_dir.iterdir()] == [run_id]        # generated once
+
+
+def test_generate_reports_error_is_visible_and_nothing_is_registered(isolated_reports_dir, isolated_history_db,
+                                                                     monkeypatch, tmp_path):
+    blocker = tmp_path / "a_file_not_a_folder"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(dashboard_module, "HISTORY_REPORTS_DIR", blocker)
+    at = _saved_summary_app()
+    at.button(key="generate_reports").click().run()
+    assert not at.exception
+    assert any("Could not generate reports" in e for e in _messages(at)["error"])
+    assert at.session_state[CACHE_KEY].get("report_paths") is None
+    run_id = at.session_state[CACHE_KEY]["saved_run_id"]
+    assert get_run(run_id, isolated_history_db)["report_paths"] is None
+    assert blocker.read_text(encoding="utf-8") == "x"                          # pre-existing file untouched
+    assert "generate_reports" in _button_keys(at)                              # can retry after fixing
+
+
+def test_history_lists_reports_and_offers_downloads(isolated_reports_dir):
+    at = _saved_summary_app()
+    at.button(key="generate_reports").click().run()
+    history = _app("History & Reports")
+    assert not history.exception
+    assert history.dataframe[0].value["reports"].tolist() == ["3 file(s)"]
+    assert _downloads(history) == ["Download incidents.csv", "Download clusters.csv", "Download report.pdf"]
+    captions = " ".join(_messages(history)["caption"])
+    assert "cannot be regenerated" in captions and "still exist" in captions
+    assert CSV_SAFETY_WARNING in _messages(history)["warning"]
+
+
+def test_history_flags_missing_report_files(isolated_reports_dir):
+    at = _saved_summary_app()
+    at.button(key="generate_reports").click().run()
+    run_id = at.session_state[CACHE_KEY]["saved_run_id"]
+    (isolated_reports_dir / run_id / "report.pdf").unlink()
+    history = _app("History & Reports")
+    assert not history.exception
+    assert _downloads(history) == ["Download incidents.csv", "Download clusters.csv"]
+    assert any(f"Missing file: {run_id}/report.pdf" in w for w in _messages(history)["warning"])
+
+
+def test_runs_without_reports_are_not_offered_for_regeneration_in_history(isolated_history_db):
+    _saved_summary_app()                                                       # saved, no reports
+    history = _app("History & Reports")
+    assert not history.exception
+    assert history.dataframe[0].value["reports"].tolist() == ["none"]
+    assert any("No reports registered yet" in m for m in _messages(history)["info"])
+    assert "generate_reports" not in _button_keys(history) and _downloads(history) == []

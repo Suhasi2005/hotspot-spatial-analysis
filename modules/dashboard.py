@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -17,9 +18,17 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
 
-from config.settings import DB_PATH, DEFAULT_ANALYSIS_CONFIG, AnalysisConfig, CandidateHotspotCriteria, DBSCANParams, KDEParams
-from modules.app_controller import cluster_dataset, estimate_density, load_and_validate, record_run, summarize_results
-from modules.database import list_runs
+from config.settings import DB_PATH, DEFAULT_ANALYSIS_CONFIG, REPORTS_DIR, AnalysisConfig, CandidateHotspotCriteria, DBSCANParams, KDEParams
+from modules.app_controller import (
+    cluster_dataset,
+    estimate_density,
+    generate_reports,
+    load_and_validate,
+    record_run,
+    summarize_results,
+)
+from modules.database import list_runs, resolve_report_path
+from modules.report_generator import CSV_SAFETY_WARNING
 from modules.contracts import CLUSTER_LABEL_COLUMN, NOISE_LABEL, AnalysisError, CleanDataset, ClusterResult, DataValidationError
 from modules.data_manager import list_sample_datasets
 from modules.data_validator import summarize_quality
@@ -46,6 +55,10 @@ CACHE_KEY = "analysis_cache"
 # redirected with the HOTSPOT_DB_PATH environment variable (config.settings).
 HISTORY_DB_PATH = DB_PATH
 HISTORY_LIMIT = 50
+# Reports root for generation and downloads; read at call time (tests patch it,
+# the app can be redirected with HOTSPOT_REPORTS_DIR).
+HISTORY_REPORTS_DIR = REPORTS_DIR
+REPORT_MIME = {".csv": "text/csv", ".pdf": "application/pdf"}
 
 
 def render_page(name: str) -> None:
@@ -418,8 +431,9 @@ def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None
         return
     if results.get("saved_run_id"):
         st.success(f"This analysis is saved in the history as run {results['saved_run_id']}.")
-        return
-    if st.button("Save this run to history", key="save_run"):
+    else:
+        if not st.button("Save this run to history", key="save_run"):
+            return
         try:
             run = record_run(dataset, results["config"], results["clusters"], results["density"],
                              results["summary"], db_path=HISTORY_DB_PATH)
@@ -427,7 +441,43 @@ def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None
             st.error(f"Could not save the run: {exc}")
             return
         results["saved_run_id"] = run.run_id
+        results["saved_run"] = run
         st.success(f"Saved to the history as run {run.run_id}.")
+    _render_report_section(results)
+
+
+# --- reports (Stage 9) ---------------------------------------------------------------------
+
+
+def _render_report_section(results: dict[str, Any]) -> None:
+    """Generate reports once for the run saved from this cache entry, then offer downloads."""
+    st.subheader("Reports")
+    st.warning(CSV_SAFETY_WARNING)
+    paths = results.get("report_paths")
+    if paths is None:
+        if not st.button("Generate reports", key="generate_reports"):
+            st.caption("Writes incidents.csv, clusters.csv and report.pdf once for this saved run.")
+            return
+        try:
+            paths = generate_reports(results["saved_run"], HISTORY_REPORTS_DIR, db_path=HISTORY_DB_PATH)
+        except (sqlite3.Error, OSError, ValueError, LookupError, AnalysisError) as exc:
+            st.error(f"Could not generate reports: {exc}")
+            return
+        results["report_paths"] = paths
+        st.success("Reports generated for this run.")
+    _download_buttons(paths, "summary")
+
+
+def _download_buttons(paths: list[Path], key_prefix: str) -> None:
+    for path in paths:
+        if path.exists():
+            st.download_button(
+                f"Download {path.name}", data=path.read_bytes(), file_name=path.name,
+                mime=REPORT_MIME.get(path.suffix, "application/octet-stream"),
+                key=f"{key_prefix}_{path.parent.name}_{path.name}",
+            )
+        else:
+            st.warning(f"Missing file: {path.parent.name}/{path.name} is no longer in the reports folder.")
 
 
 def _render_history_page() -> None:
@@ -443,8 +493,27 @@ def _render_history_page() -> None:
     elif runs:
         st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
         st.dataframe(pd.DataFrame([_history_row(r) for r in runs]), hide_index=True, width="stretch")
+
     st.subheader("Reports")
-    st.info("Reports: Not implemented yet — see docs/development_plan.md (Stage 9).")
+    st.caption(
+        "Reports are generated on the Summary page for a run saved in this session. Runs from earlier "
+        "sessions cannot be regenerated, because the history stores parameters, not results; their reports "
+        "can be downloaded here only if they were registered and the files still exist."
+    )
+    st.warning(CSV_SAFETY_WARNING)
+    with_reports = [r for r in runs or [] if r["report_paths"]]
+    if not with_reports:
+        st.info("No reports registered yet.")
+        return
+    chosen = st.selectbox("Run", [r["run_id"] for r in with_reports], key="history_report_run")
+    row = next(r for r in with_reports if r["run_id"] == chosen)
+    resolved = []
+    for stored in row["report_paths"]:
+        try:
+            resolved.append(resolve_report_path(stored, HISTORY_REPORTS_DIR))
+        except ValueError as exc:
+            st.error(f"Invalid stored report path: {exc}")
+    _download_buttons(resolved, "history")
 
 
 def _history_row(run: dict[str, Any]) -> dict[str, Any]:
@@ -456,6 +525,7 @@ def _history_row(run: dict[str, Any]) -> dict[str, Any]:
         "source": run["source_name"],
         "accepted / total rows": f"{run['valid_rows']:,} / {run['total_rows']:,}",
         "status": "complete" if usable else "unusable dataset (no analysis)",
+        "reports": f"{len(run['report_paths'])} file(s)" if run["report_paths"] else "none",
         "clusters": NOT_RUN if run["cluster_count"] is None else run["cluster_count"],
         "candidate hotspots": NOT_RUN if run["candidate_hotspot_count"] is None else run["candidate_hotspot_count"],
         "noise incidents": NOT_RUN if run["noise_count"] is None else run["noise_count"],

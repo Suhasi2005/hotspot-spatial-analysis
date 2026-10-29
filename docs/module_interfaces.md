@@ -30,8 +30,12 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `app_controller.record_run(dataset, config, clusters, density, summary, *, db_path=DB_PATH)` | already computed results | `AnalysisRun` (saved) | `AnalysisError` (partial or mismatched results); storage errors propagate | 8 |
 | `database.init_db(db_path) / save_run(run, db_path) / list_runs(limit=50, db_path)` | `AnalysisRun`, `Path` | `None` / `None` / `list[dict]` | `sqlite3.Error`, `OSError`, `ValueError` (not swallowed) | 8 |
 | `database.config_to_json(config) / config_from_json(text)` | `AnalysisConfig` / `str` | `str` / `AnalysisConfig` | `ValueError` (NaN, unknown schema version) | 8 |
-| `report_generator.export_csv(run, out_dir)` | `AnalysisRun` | `list[Path]` | `OSError` | 9 |
-| `report_generator.export_pdf(run, out_dir)` | `AnalysisRun` | `Path` | `OSError` | 9 |
+| `report_generator.export_csv(run, out_dir)` | complete usable `AnalysisRun`, existing folder | `[incidents.csv, clusters.csv]` | `AnalysisError` (ineligible run, column clash), `FileExistsError`, `OSError` | 9 (done) |
+| `report_generator.export_pdf(run, out_dir)` | complete usable `AnalysisRun`, existing folder | `report.pdf` | `AnalysisError`, `FileExistsError`, `OSError` | 9 (done) |
+| `report_generator.report_sections(run)` / `pdf_markup(text)` | `AnalysisRun` / any value | `list[ReportSection]` (plain text) / escaped markup | `AnalysisError` | 9 (done) |
+| `database.set_report_paths(run_id, paths, db_path, *, reports_dir=REPORTS_DIR)` | paths inside `reports_dir` | stored relative strings | `LookupError` (unknown run), `ValueError` (already set, outside the folder, empty list) | 9 (done) |
+| `database.get_run(run_id, db_path)` / `resolve_report_path(stored, reports_dir)` | run ID / stored string | `dict` or `None` / absolute `Path` | `ValueError` (traversal, absolute path) | 9 (done) |
+| `app_controller.generate_reports(run, out_dir=REPORTS_DIR, *, db_path=DB_PATH)` | saved complete `AnalysisRun` | final `list[Path]` | `AnalysisError`, `FileExistsError`, `OSError`, `sqlite3.Error` | 9 (done) |
 
 ## Contract decisions (Stage 1 audit)
 - **Duplicate IDs:** the first occurrence is kept; later ones are rejected as `DUPLICATE_ID`, and blank IDs as `MISSING_ID`. This happens only in `validate_and_clean`, and no other module de-duplicates. See `dataset_specification.md` → *Incident ID rules*.
@@ -279,7 +283,7 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - **`init_db`** creates the folder and table; it is safe to call repeatedly.
   - **`save_run`** stores `created_at` as UTC ISO-8601 with microseconds, so text order equals time order; naive datetimes are rejected.
     - The cluster columns are NULL when DBSCAN didn't run.
-    - `report_paths_json` stays NULL until Stage 9.
+    - `report_paths_json` starts NULL; Stage 9's `set_report_paths` fills it once.
     - A duplicate `run_id` raises `IntegrityError`, and the failed insert is rolled back.
   - **`list_runs`** returns runs newest first (`created_at`, then `run_id`), with a validated `limit`.
     - It opens the database **read-only** and **never creates it**; a missing file returns `[]`.
@@ -299,6 +303,58 @@ The signatures exist in code now. Functions marked *done* are implemented and te
     - **Errors on read** are shown as "Could not read the run history: …".
     - A notice says reports arrive in Stage 9.
   - **History location:** the page and button use the module setting `HISTORY_DB_PATH`, which defaults to `config.settings.DB_PATH` and can be redirected with `HOTSPOT_DB_PATH`.
+
+## Stage 9 decisions (CSV and PDF reports)
+- **Eligibility (A):** reports are generated only for a **saved, complete, usable** run held in the current session.
+  - The run must have clusters, density and summary (with the method comparison).
+  - A history row with its `run_id` must exist, and its config, source name and row counts must match the run.
+  - No report paths may be registered yet.
+  - The history stores parameters, not results, so runs from earlier sessions **cannot** be regenerated. Their reports can only be downloaded if they were registered and the files still exist.
+- **Layout and no overwriting (C):**
+  - Files go to `REPORTS_DIR/<run_id>/incidents.csv`, `clusters.csv` and `report.pdf`.
+  - Every file is created exclusively (`x` mode); an existing file raises `FileExistsError`.
+  - An existing `<run_id>` folder is refused. Reports are generated once per run.
+- **`generate_reports` workflow (B):**
+  1. Check eligibility.
+  2. Refuse an existing run folder.
+  3. Write the files into a new temporary folder inside the reports root.
+  4. Check them: non-empty CSVs with a UTF-8 BOM, and a PDF with `%PDF-` … `%%EOF`.
+  5. Rename the temporary folder to `<run_id>` (no overwrite).
+  6. Register the paths.
+
+  **This is not a true transaction across disk and database.** On any failure:
+  - the folders created by the attempt are removed (the temporary folder, or the renamed run folder if the database step failed);
+  - the reports root is removed too, if this attempt created it and it is now empty;
+  - the database is unchanged, and the error propagates.
+
+  Nothing that existed before the attempt is deleted, and the run object is not changed.
+- **Stored paths (D):**
+  - Paths are stored **relative to the reports root** as POSIX strings (`"<run_id>/report.pdf"`), still as a JSON list, so `list_runs` keeps its return type.
+  - `set_report_paths` refuses paths outside the root. It updates only with one parameterized `UPDATE … WHERE run_id = ? AND report_paths_json IS NULL`, and raises `LookupError` for an unknown run or `ValueError` if paths are already set.
+  - `resolve_report_path` refuses absolute paths, `..`, and anything that resolves outside the root.
+  - **Limitation:** if `HOTSPOT_REPORTS_DIR` changes, stored paths resolve against the new folder and the files will show as missing.
+- **`incidents.csv`:**
+  - One row per accepted incident, in file order: `source_row` (the cleaned frame's index), then every column of the clustered frame in order (required, optional and extra columns unchanged, then `cluster_label`), then `is_noise` and `cluster_is_candidate_hotspot`.
+  - A data column that already uses one of these three names is refused.
+  - **No per-incident KDE flag (H).**
+- **`clusters.csv`:** every cluster in label order: `cluster_label`, `incident_count`, `centroid_lat`, `centroid_lon`, `radius_m`, `is_candidate_hotspot`, `eligible_members`, `outside_grid_members`, `members_at_high_density`, `high_density_share`.
+- **CSV format (E):**
+  - Python `csv` writer, minimal quoting, CRLF line endings, **UTF-8 with BOM**.
+  - Floats are written with `repr` so they round-trip exactly. Booleans are `true`/`false`, dates are ISO 8601, and missing values are empty cells.
+  - **Text is written exactly as stored.** Nothing is prefixed or rewritten, so formula-like cells such as `=1+1` stay as they are.
+  - The dashboard and the PDF show `CSV_SAFETY_WARNING` about spreadsheet formula execution.
+- **PDF:**
+  - ReportLab, A4, built in **invariant mode** so the same run gives identical bytes.
+  - Content comes from `report_sections(run)`, in this order: Run; Data quality; Parameters (every `AnalysisConfig` field); DBSCAN clusters; KDE density; DBSCAN vs KDE; Incidents by category; Limitations and notes.
+  - **Cluster cap (F):** at most 50 clusters in ascending label order, always stating that `clusters.csv` contains all clusters.
+  - The limitations cover descriptive-only results, the candidate size rule, relative density, the CSV warning, the summary and comparison notes, and all four open items.
+  - **Text safety:** every value is mapped to Helvetica's Windows-1252 characters (`≥` becomes `>=`; anything else unsupported becomes a visible `[U+XXXX]`) and XML-escaped before it reaches ReportLab markup.
+  - **No maps** in the PDF.
+- **Dashboard:**
+  - **Summary page:** after "Save", a **Generate reports** button offered once per saved run (kept on the cache entry), then three download buttons. Errors show as "Could not generate reports: …", and a retry is possible.
+  - **History & Reports page:** the history table gains a `reports` column. Choosing a run shows downloads for files that exist, and files missing from disk are flagged as missing.
+  - Both pages show the CSV safety warning.
+  - Tests patch `HISTORY_REPORTS_DIR`. The app itself uses `REPORTS_DIR`, which can be redirected with `HOTSPOT_REPORTS_DIR`.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

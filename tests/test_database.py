@@ -204,3 +204,66 @@ def test_save_does_not_mutate_the_run(tmp_path):
     pd.testing.assert_frame_equal(run.dataset.frame, frame_before)
     pd.testing.assert_frame_equal(run.clusters.labeled_frame, labels_before)
     assert run.summary is summary_before and run.run_id == "r1" and run.created_at == T0
+
+
+# --- Stage 9: report paths ---------------------------------------------------------------------
+
+from modules.database import get_run, resolve_report_path, set_report_paths  # noqa: E402
+
+
+def _saved(tmp_path, run_id="r1"):
+    db = tmp_path / "h.sqlite3"
+    save_run(_run(run_id=run_id, usable=False), db)
+    reports = tmp_path / "reports"
+    files = [reports / run_id / name for name in ("incidents.csv", "clusters.csv", "report.pdf")]
+    return db, reports, files
+
+
+def test_report_paths_round_trip_as_relative_strings(tmp_path):
+    db, reports, files = _saved(tmp_path)
+    stored = set_report_paths("r1", files, db, reports_dir=reports)
+    assert stored == ["r1/incidents.csv", "r1/clusters.csv", "r1/report.pdf"]
+    assert list_runs(db_path=db)[0]["report_paths"] == stored                       # list of strings, as before
+    assert get_run("r1", db)["report_paths"] == stored
+    assert [resolve_report_path(s, reports) for s in stored] == [f.resolve() for f in files]
+
+
+def test_report_paths_are_set_only_once_and_only_for_known_runs(tmp_path):
+    db, reports, files = _saved(tmp_path)
+    with pytest.raises(LookupError, match="Unknown run"):
+        set_report_paths("nope", files, db, reports_dir=reports)
+    set_report_paths("r1", files, db, reports_dir=reports)
+    with pytest.raises(ValueError, match="already registered"):
+        set_report_paths("r1", files[:1], db, reports_dir=reports)
+    assert get_run("r1", db)["report_paths"] == ["r1/incidents.csv", "r1/clusters.csv", "r1/report.pdf"]
+
+
+def test_report_paths_outside_the_reports_folder_are_refused(tmp_path):
+    db, reports, files = _saved(tmp_path)
+    for bad in (tmp_path / "elsewhere.pdf", reports / ".." / "escape.pdf"):
+        with pytest.raises(ValueError, match="outside the reports folder"):
+            set_report_paths("r1", [bad], db, reports_dir=reports)
+    with pytest.raises(ValueError, match="At least one"):
+        set_report_paths("r1", [], db, reports_dir=reports)
+    assert get_run("r1", db)["report_paths"] is None
+
+
+def test_set_report_paths_on_missing_database_creates_nothing(tmp_path):
+    db = tmp_path / "missing.sqlite3"
+    with pytest.raises(LookupError):
+        set_report_paths("r1", [tmp_path / "r" / "x.pdf"], db, reports_dir=tmp_path / "r")
+    assert not db.exists()
+
+
+@pytest.mark.parametrize("stored", ["../escape.pdf", "r1/../../escape.pdf", "/abs/report.pdf", "C:/abs/report.pdf"])
+def test_resolve_report_path_rejects_traversal_and_absolute_paths(tmp_path, stored):
+    with pytest.raises(ValueError):
+        resolve_report_path(stored, tmp_path / "reports")
+
+
+def test_get_run_is_read_only(tmp_path):
+    missing = tmp_path / "none.sqlite3"
+    assert get_run("r1", missing) is None and not missing.exists()
+    db, _, _ = _saved(tmp_path)
+    assert get_run("unknown", db) is None
+    assert get_run("r1", db)["run_id"] == "r1"

@@ -18,6 +18,7 @@ from typing import Any, Iterator
 
 from config.settings import (
     DB_PATH,
+    REPORTS_DIR,
     AnalysisConfig,
     CandidateHotspotCriteria,
     DBSCANParams,
@@ -62,7 +63,8 @@ def save_run(run: AnalysisRun, db_path: Path = DB_PATH) -> None:
 
     created_at must be timezone-aware; it is stored as UTC ISO-8601 with
     microseconds so text order equals time order. Cluster columns are NULL
-    when DBSCAN did not run. report_paths_json is NULL until Stage 9.
+    when DBSCAN did not run. report_paths_json starts NULL; set_report_paths
+    fills it once when reports are generated.
     A duplicate run_id raises sqlite3.IntegrityError.
     """
     row = (
@@ -101,14 +103,83 @@ def list_runs(limit: int = 50, db_path: Path = DB_PATH) -> list[dict[str, Any]]:
             f"SELECT {', '.join(_COLUMNS)} FROM analysis_runs ORDER BY created_at DESC, run_id DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    result = []
-    for values in rows:
-        record = dict(zip(_COLUMNS, values))
-        record["config"] = config_from_json(record.pop("config_json"))
-        paths = record.pop("report_paths_json")
-        record["report_paths"] = None if paths is None else json.loads(paths)
-        result.append(record)
-    return result
+    return [_decode_row(values) for values in rows]
+
+
+def _decode_row(values: tuple) -> dict[str, Any]:
+    record = dict(zip(_COLUMNS, values))
+    record["config"] = config_from_json(record.pop("config_json"))
+    paths = record.pop("report_paths_json")
+    record["report_paths"] = None if paths is None else json.loads(paths)
+    return record
+
+
+def get_run(run_id: str, db_path: Path = DB_PATH) -> dict[str, Any] | None:
+    """One saved run in the list_runs format, or None if absent (read-only; never creates the file)."""
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return None
+    with _connect(db_path, read_only=True) as conn:
+        values = conn.execute(
+            f"SELECT {', '.join(_COLUMNS)} FROM analysis_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    return None if values is None else _decode_row(values)
+
+
+def set_report_paths(
+    run_id: str,
+    paths: list[Path],
+    db_path: Path = DB_PATH,
+    *,
+    reports_dir: Path = REPORTS_DIR,
+) -> list[str]:
+    """Register report files for an existing run whose report paths are not set yet.
+
+    Each path must lie inside `reports_dir`; it is stored relative to it as a
+    POSIX string (e.g. "<run_id>/report.pdf") in report_paths_json, so
+    list_runs keeps returning a list of strings. Raises ValueError for an
+    empty list or a path outside reports_dir, LookupError for an unknown
+    run_id, and ValueError if paths are already registered. The update is a
+    single parameterized statement guarded by "report_paths_json IS NULL".
+    Returns the stored strings.
+    """
+    if not paths:
+        raise ValueError("At least one report path is required.")
+    root = Path(reports_dir).resolve()
+    stored = []
+    for path in paths:
+        resolved = Path(path).resolve()
+        try:
+            relative = resolved.relative_to(root)
+        except ValueError:
+            raise ValueError(f"Report path {path} is outside the reports folder.") from None
+        stored.append(relative.as_posix())
+    db_path = Path(db_path)
+    if not db_path.exists():
+        raise LookupError(f"Unknown run {run_id!r}: no history database.")
+    with _connect(db_path) as conn:
+        updated = conn.execute(
+            "UPDATE analysis_runs SET report_paths_json = ? WHERE run_id = ? AND report_paths_json IS NULL",
+            (json.dumps(stored), run_id),
+        ).rowcount
+        if updated != 1:
+            exists = conn.execute("SELECT 1 FROM analysis_runs WHERE run_id = ?", (run_id,)).fetchone()
+            if exists is None:
+                raise LookupError(f"Unknown run {run_id!r}.")
+            raise ValueError(f"Reports are already registered for run {run_id!r}.")
+    return stored
+
+
+def resolve_report_path(stored: str, reports_dir: Path = REPORTS_DIR) -> Path:
+    """Absolute path of a stored report path, refusing anything outside reports_dir."""
+    candidate = Path(stored)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise ValueError(f"Stored report path {stored!r} is not a plain relative path.")
+    root = Path(reports_dir).resolve()
+    resolved = (root / candidate).resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"Stored report path {stored!r} points outside the reports folder.")
+    return resolved
 
 
 def config_to_json(config: AnalysisConfig) -> str:

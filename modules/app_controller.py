@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import BinaryIO
 
 from config.settings import AnalysisConfig, StudyArea
-from modules.contracts import AnalysisRun, CleanDataset
+from modules.contracts import AnalysisError, AnalysisRun, CleanDataset, ClusterResult
 from modules.data_manager import load_raw_dataset
 from modules.data_validator import validate_and_clean
+from modules.dbscan_analysis import run_dbscan
 
 
 def load_and_validate(
@@ -28,6 +29,16 @@ def load_and_validate(
     """
     raw, name = load_raw_dataset(source, source_name)
     return validate_and_clean(raw, name, study_area)
+
+
+def cluster_dataset(dataset: CleanDataset, config: AnalysisConfig) -> ClusterResult:
+    """Run DBSCAN on a validated dataset (the Stage 4 slice of the workflow).
+
+    Refuses an unusable dataset before DBSCAN is reached. Raises AnalysisError.
+    """
+    if not dataset.report.is_usable:
+        raise AnalysisError("Clustering skipped: the dataset is unusable (no accepted incidents).")
+    return run_dbscan(dataset, config.dbscan, config.hotspot)
 
 
 def run_analysis(

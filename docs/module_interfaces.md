@@ -10,9 +10,10 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `data_validator.summarize_quality(report)` | `ValidationReport` | `DataFrame[severity, code, affected_rows, rows, message]` | — | 2 (done) |
 | `app_controller.load_and_validate(source, source_name=None, study_area=None)` | file | `CleanDataset` | `DataValidationError` | 2 (done) |
 | `dbscan_analysis.metres_to_radians(distance_m)` | `float` | `float` | — | 1 (done) |
-| `dbscan_analysis.run_dbscan(dataset, params, criteria)` | `CleanDataset, DBSCANParams, CandidateHotspotCriteria` | `ClusterResult` | `AnalysisError` | 4 |
+| `dbscan_analysis.run_dbscan(dataset, params, criteria)` | `CleanDataset, DBSCANParams, CandidateHotspotCriteria` | `ClusterResult` | `AnalysisError` (unusable or empty dataset, invalid parameter, existing `cluster_label` column) | 4 (done) |
+| `app_controller.cluster_dataset(dataset, config)` | `CleanDataset, AnalysisConfig` | `ClusterResult` | `AnalysisError` | 4 (done) |
 | `density_analysis.run_kde(dataset, params, study_area=None)` | `CleanDataset, KDEParams, StudyArea?` | `DensityResult` | `AnalysisError` | 5 |
-| `spatial_statistics.haversine_m(lat1, lon1, lat2, lon2)` | degrees | metres | — | 4 (written by M2) |
+| `spatial_statistics.haversine_m(lat1, lon1, lat2, lon2)` | degrees (scalars) | metres | — | 4 (done, written by M2) |
 | `spatial_statistics.summarize(dataset, clusters, density)` | either result may be `None` | `SpatialSummary` | — | 6 |
 | `map_visualization.build_incident_map(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `folium.Map` | `AnalysisError` if unusable or empty | 3 (done) |
 | `map_visualization.incident_marker_records(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `list[dict]` with keys `incident_id, lat, lon, source_row, tooltip, popup_html` | `AnalysisError` if unusable or empty | 3 (done) |
@@ -49,6 +50,30 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - Popups show only the optional columns that exist and are non-blank.
 - **View:** the initial centre is the midpoint of the data's bounding box. For more than one distinct location the map fits that box; a single location is centred at zoom 15.
 - **Determinism:** marker order, positions and popup text are deterministic for a fixed input. Folium's internal element IDs are random and are not part of the contract.
+
+## Stage 4 decisions (DBSCAN)
+- **Distance convention (the only one):** sklearn `DBSCAN(metric="haversine", algorithm="ball_tree")` on `[lat, lon]` in radians, built by row position.
+  - `eps_rad = eps_m / 6,371,008.8`.
+  - `haversine_m` uses the same sphere, so `radius_m` and `eps_m` are directly comparable.
+- **`min_samples`** counts the point itself (sklearn semantics). `min_samples=1` makes every point a cluster.
+- **Parameter validation inside `run_dbscan`** (raises `AnalysisError`). This closes gaps that `DBSCANParams` and `CandidateHotspotCriteria` construction leave open; the shared config is unchanged.
+  - `eps_m` must be a finite real number > 0 and ≤ `MAX_EPS_M = π × 6,371,008.8` m, half the circumference of the mean-radius sphere (the antipodal distance). The comparison is done in metres, with no tolerance: the boundary value itself is accepted, and the next representable float above it is rejected. NaN, ±inf and bools are rejected.
+  - `min_samples` and `min_incidents` must be integers ≥ 1. Floats and bools are rejected; NumPy integers are accepted.
+  - The coordinates are re-checked as finite and in range, in case a `CleanDataset` was built by hand.
+- **Labels are attached by position.**
+  - `labeled_frame` is a copy of `dataset.frame` with the same rows, order and **source index**, plus `cluster_label`. Noise is `-1`.
+  - A source column already named `cluster_label` is refused, never overwritten.
+  - Any cluster label traces back to its file row through the frame's index.
+- **Summaries.**
+  - One `ClusterSummary` per real cluster, in ascending label order. There is none for noise; noise is counted in `noise_count`.
+  - Labels are arbitrary IDs, not ranks.
+  - Centroid = mean lat and mean lon (degrees). `radius_m` = largest `haversine_m` from the centroid to a member.
+- **Candidate hotspot:** `incident_count >= criteria.min_incidents` (the threshold counts as met). This is a size rule only and implies no statistical significance. `min_density_per_km2` is **ignored** until an area calculation is agreed. The default `min_incidents = 10` is still a placeholder awaiting justification from real data.
+- **Edge cases.**
+  - An empty or unusable dataset raises `AnalysisError`.
+  - Fewer points than `min_samples` is **not** an error: every point is noise and `clusters == []`.
+- **`params` records exactly what was passed to sklearn:** `eps_m`, `eps_rad`, `min_samples` (a Python `int`), `metric`, `algorithm`.
+- **`app_controller.cluster_dataset`** is a small additive entry point. It checks `is_usable`, then calls `run_dbscan` with `config.dbscan` and `config.hotspot`. The UI doesn't call it yet; the clustering page is Stage 7.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

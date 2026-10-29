@@ -1,0 +1,19 @@
+# Hotspot Identification and Spatial Analysis — runtime + test dependencies.
+# Target: Python 3.12. Ranges pin the major version and set a floor that is
+# known to support Python 3.12. Freeze exact versions with
+#   pip freeze > requirements.lock.txt
+# once the team has a working environment, and commit that lock file.
+
+streamlit>=1.38,<2.0
+pandas>=2.2,<3.0
+numpy>=1.26,<3.0
+geopandas>=1.0,<2.0        # brings pyproj + pyogrio for CRS handling
+shapely>=2.0,<3.0
+scikit-learn>=1.5,<2.0     # DBSCAN + KernelDensity (haversine metric)
+folium>=0.17,<1.0
+streamlit-folium>=0.22,<1.0
+plotly>=5.22,<7.0
+reportlab>=4.2,<5.0
+
+# Testing
+pytest>=8.2,<10.0

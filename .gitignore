@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local database
+*.sqlite
+*.sqlite3
+*.db
+
+# Generated artifacts
+data/processed/*
+!data/processed/.gitkeep
+reports/*
+!reports/.gitkeep
+*.tmp
+*.log
+
+# Streamlit local secrets
+.streamlit/secrets.toml

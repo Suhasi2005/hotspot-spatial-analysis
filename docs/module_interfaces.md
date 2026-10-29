@@ -244,7 +244,7 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - **Density:** density map, legend and threshold explanation, and a table of the parameters used.
   - **Summary:** the `SpatialSummary` values, with `None` shown as "Not run". Also the method-comparison 2×2 table and per-cluster table, the notes, and Plotly charts by severity and incident type (from `by_category`) and by date (`incidents_by_period`). Charts appear only when their columns exist.
   - **Data:** unchanged.
-  - **History & Reports:** still a placeholder.
+  - **History & Reports:** a placeholder at Stage 7. It now lists saved runs (Stage 8) and offers report downloads (Stage 9); see those sections.
 - **Display-only filters** (Clusters page sidebar): severity and incident type (missing values appear as "(missing)"), "Show noise points", and "Candidate hotspots only".
   - `dashboard.display_mask` builds a positional boolean mask that only selects what the cluster map and the "shown" bars draw.
   - DBSCAN labels, KDE values, the summary and the comparison denominators always use **all** accepted incidents. Tests check that the cached result objects are unchanged after filtering.

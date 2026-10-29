@@ -1,6 +1,10 @@
 # Project Requirements
 
-**Status: Stage 1 (foundation).** Everything below describes intended behaviour; no analytical feature is implemented yet.
+**Status: Stages 1–9 implemented and tested** (see `development_plan.md`). FR1–FR9 below are implemented, with two partial points:
+- **FR1:** the sample list contains only a clearly labelled synthetic file (`data/sample/synthetic_demo.csv`). No real-world dataset has been selected.
+- **FR3:** the study-area box is applied by validation, KDE and the controller, but it is set in `config/settings.py`; the dashboard has no control for it.
+
+The requirements are unchanged from the original plan.
 
 ## Problem statement
 Incident records with geographic coordinates (initially road accidents) are usually reviewed as tables, which hides where incidents concentrate. Planners need a repeatable way to load such data, check its quality, find spatial clusters and high-density areas, and share the findings, without overstating what the methods prove.

@@ -10,7 +10,7 @@
 | 6 | Spatial statistics + method comparison | M3, M5 | `summarize`; overlap of DBSCAN clusters with KDE high-density cells | Done (`ec81f8d`): point-based overlap. |
 | 7 | Cluster/density maps + dashboard | M4 | Cluster and heat layers, Plotly charts, filters | Done (`e054d97`): KDE grid image overlay, cluster map with all circles, display-only filters. |
 | 8 | Orchestration + history | M5 | `run_analysis`, SQLite history page, end-to-end test | Done (`b0b2af5`): `run_analysis`, `record_run` with configuration checks, SQLite history page. |
-| 9 | Reports | M5 | CSV + PDF with parameters and limitations | Done (the commit following `b0b2af5`): incidents/clusters CSV, PDF with limitations and open items, `generate_reports` with rollback, downloads. |
+| 9 | Reports | M5 | CSV + PDF with parameters and limitations | Done (`3da1f93`): incidents/clusters CSV, PDF with limitations and open items, `generate_reports` with rollback, downloads. |
 | 10 | Evaluation + final verification | All | Sensitivity analysis, full test run, docs updated to match the code, demo | Not started |
 
 ## Responsibilities

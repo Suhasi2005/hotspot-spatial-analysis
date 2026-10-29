@@ -1,6 +1,9 @@
 # System Architecture
 
-**Status: designed. Only the configuration, contracts and app shell exist.**
+**Status: implemented (Stages 1–9).** Every module below exists and is covered by tests.
+- The UI calls the controller (`load_and_validate`, `cluster_dataset`, `estimate_density`, `summarize_results`, `record_run`, `generate_reports`) and the map builders.
+- `run_analysis` runs the whole pipeline without the UI.
+- Exact interfaces and decisions: `module_interfaces.md`.
 
 ## High-level view
 ```

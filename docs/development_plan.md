@@ -2,8 +2,8 @@
 
 | # | Stage | Lead | Deliverable | Status |
 |---|---|---|---|---|
-| 1 | Foundation | All | Structure, config, contracts, interface stubs, docs | **Done (awaiting approval)** |
-| 2 | Dataset selection + validation | M1 | Verified dataset (source, licence) or a clearly labelled synthetic set; `load_raw_dataset`, `validate_and_clean`, quality report | Not started |
+| 1 | Foundation | All | Structure, config, contracts, interface stubs, docs | Done (`2344e64`) |
+| 2 | Dataset selection + validation | M1 | Verified dataset (source, licence) or a clearly labelled synthetic set; `load_raw_dataset`, `validate_and_clean`, quality report | **Loading, validation and Data page done (awaiting review). Dataset selection still open.** |
 | 3 | Data page + base map | M4 (M1) | Upload page, quality table, incident point map | Not started |
 | 4 | DBSCAN | M2 | `run_dbscan`, `haversine_m`, documented candidate-hotspot criteria, parameter-sensitivity notes | Not started |
 | 5 | KDE | M3 | `run_kde`, bandwidth rationale, high-density threshold | Not started |

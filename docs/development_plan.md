@@ -7,8 +7,8 @@
 | 3 | Data page + base map | M4 (M1) | Upload page, quality table, incident point map | Done (`5fc55b3`) |
 | 4 | DBSCAN | M2 | `run_dbscan`, `haversine_m`, documented candidate-hotspot criteria, parameter-sensitivity notes | Done (`230dbc5`). Parameter-sensitivity notes and threshold justification need a real dataset. |
 | 5 | KDE | M3 | `run_kde`, bandwidth rationale, high-density threshold | Done (`c8c2238`). Bandwidth rationale needs a real dataset. |
-| 6 | Spatial statistics + method comparison | M3, M5 | `summarize`; overlap of DBSCAN clusters with KDE high-density cells | Done: point-based overlap (the commit following `c8c2238`). |
-| 7 | Cluster/density maps + dashboard | M4 | Cluster and heat layers, Plotly charts, filters | Not started |
+| 6 | Spatial statistics + method comparison | M3, M5 | `summarize`; overlap of DBSCAN clusters with KDE high-density cells | Done (`ec81f8d`): point-based overlap. |
+| 7 | Cluster/density maps + dashboard | M4 | Cluster and heat layers, Plotly charts, filters | Done (the commit following `ec81f8d`): KDE grid image overlay, cluster map with all circles, display-only filters. |
 | 8 | Orchestration + history | M5 | `run_analysis`, SQLite history page, end-to-end test | Not started |
 | 9 | Reports | M5 | CSV + PDF with parameters and limitations | Not started |
 | 10 | Evaluation + final verification | All | Sensitivity analysis, full test run, docs updated to match the code, demo | Not started |

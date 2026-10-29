@@ -10,11 +10,19 @@ from pathlib import Path
 from typing import BinaryIO
 
 from config.settings import AnalysisConfig, StudyArea
-from modules.contracts import AnalysisError, AnalysisRun, CleanDataset, ClusterResult, DensityResult
+from modules.contracts import (
+    AnalysisError,
+    AnalysisRun,
+    CleanDataset,
+    ClusterResult,
+    DensityResult,
+    SpatialSummary,
+)
 from modules.data_manager import load_raw_dataset
 from modules.data_validator import validate_and_clean
 from modules.dbscan_analysis import run_dbscan
 from modules.density_analysis import run_kde
+from modules.spatial_statistics import summarize
 
 
 def load_and_validate(
@@ -51,6 +59,15 @@ def estimate_density(dataset: CleanDataset, config: AnalysisConfig) -> DensityRe
     if not dataset.report.is_usable:
         raise AnalysisError("Density estimation skipped: the dataset is unusable (no accepted incidents).")
     return run_kde(dataset, config.kde, config.study_area)
+
+
+def summarize_results(
+    dataset: CleanDataset,
+    clusters: ClusterResult | None,
+    density: DensityResult | None,
+) -> SpatialSummary:
+    """Thin wrapper over spatial_statistics.summarize (Stage 6 behaviour unchanged)."""
+    return summarize(dataset, clusters, density)
 
 
 def run_analysis(

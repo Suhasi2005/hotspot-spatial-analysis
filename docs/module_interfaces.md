@@ -19,8 +19,13 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 | `spatial_statistics.compare_methods(clusters, density)` | `ClusterResult, DensityResult` | `MethodComparison` | `AnalysisError` (invalid or inconsistent inputs) | 6 (done) |
 | `map_visualization.build_incident_map(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `folium.Map` | `AnalysisError` if unusable or empty | 3 (done) |
 | `map_visualization.incident_marker_records(dataset, max_points=MAX_MAP_POINTS)` | `CleanDataset` | `list[dict]` with keys `incident_id, lat, lon, source_row, tooltip, popup_html` | `AnalysisError` if unusable or empty | 3 (done) |
-| `map_visualization.build_cluster_map(result)` | `ClusterResult` | `folium.Map` | — | 7 |
-| `map_visualization.build_density_map(result)` | `DensityResult` | `folium.Map` | — | 7 |
+| `map_visualization.build_cluster_map(result, max_points=MAX_MAP_POINTS, point_mask=None, cluster_labels=None)` | `ClusterResult`, optional positional boolean mask, optional set of labels | `folium.Map` | `AnalysisError` (empty or inconsistent result, bad mask) | 7 (done) |
+| `map_visualization.cluster_marker_records(result, max_points=MAX_MAP_POINTS, point_mask=None)` | `ClusterResult` | `list[dict]` (incident-marker keys + `cluster_label`) | `AnalysisError` | 7 (done) |
+| `map_visualization.build_density_map(result)` | `DensityResult` | `folium.Map` | `AnalysisError` (invalid result, uneven axes) | 7 (done) |
+| `map_visualization.density_overlay_bounds(result)` | `DensityResult` | `[[south, west], [north, east]]` cell edges | `AnalysisError` | 7 (done) |
+| `map_visualization.density_overlay_rgba(result, threshold_mask=False)` | `DensityResult` | `uint8` array `(len(grid_lat), len(grid_lon), 4)`, north row first | `AnalysisError` | 7 (done) |
+| `spatial_statistics.incidents_by_period(dataset)` | `CleanDataset` | `dict` (see Stage 7 decisions) | `AnalysisError` (unusable or empty dataset) | 7 (done) |
+| `app_controller.summarize_results(dataset, clusters, density)` | as `summarize` | `SpatialSummary` | as `summarize` | 7 (done) |
 | `app_controller.run_analysis(source, config, source_name=None, persist=True)` | file + `AnalysisConfig` | `AnalysisRun` | propagates the errors above | 8 |
 | `database.init_db / save_run / list_runs` | `AnalysisRun`, `Path` | `None` / `list[dict]` | `sqlite3.Error` (not swallowed) | 8 |
 | `report_generator.export_csv(run, out_dir)` | `AnalysisRun` | `list[Path]` | `OSError` | 9 |
@@ -191,6 +196,60 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - `params["grid_extent"]` must exist with finite south, north, west and east, must not be inverted, and must be covered by the axes.
 - **Both results together:** a grid with `grid_source == "data_extent_padded"` contains every point it was fitted on by construction. Any incident outside such a grid is therefore reported as a mismatch, not as outside the grid.
 - **Limitation:** the KDE result carries no incident IDs, so a matching `n_points` plus these extent checks cannot *prove* the KDE came from the same dataset. Provenance or hashing is out of scope for Stage 6.
+
+## Stage 7 decisions (cluster and density maps, dashboard)
+### Cluster map
+- **Points:**
+  - Read by position from `labeled_frame`. Cluster members use `CLUSTER_PALETTE[label % 10]`, ten distinguishable colours that are the same every run; with more than ten clusters the colours repeat, so the label also appears in popups.
+  - Noise (`-1`) is drawn as smaller dark-grey markers (`#616161`, radius 4 against 5 for cluster members), so they stay visible on the basemap.
+  - Popups reuse the escaped incident-popup format, plus a "DBSCAN: cluster N | noise" line. The incident map's own output is unchanged.
+- **Point cap:** at most `MAX_MAP_POINTS` (5,000) markers. The cap is applied **after** the display mask and **before** markers are built: the first rows in file order. The dashboard warns that the drawn points are **not a representative sample**.
+- **Circles:**
+  - One `folium.Circle` per cluster, at the reported centroid with the reported `radius_m` in metres. They are always drawn regardless of the point cap; only the "candidate hotspots only" filter can hide non-candidate circles.
+  - Nothing is recomputed from the DBSCAN result.
+  - Candidate hotspots get a thick black outline and the tooltip "Candidate hotspot — size rule only (not statistical significance)".
+  - A one-point cluster has `radius_m = 0`, so its circle has no visible size; its point is still drawn. Compact clusters (tens of metres) look like dots at city zoom and become visible when zoomed in. Circles sit under the points so the points' popups stay clickable.
+- **Layer controls** sit top-left on both maps, so they don't cover the density legend.
+
+### Density map
+- **What is drawn:** the existing KDE grid as an `ImageOverlay`. There is **no** `HeatMap` plugin and no new estimator.
+- **`density_overlay_bounds`:** each node is the centre of a cell one step wide, so the bounds run from half a step before the first node to half a step after the last node: `[[grid_lat[0] − Δlat/2, grid_lon[0] − Δlon/2], [grid_lat[-1] + Δlat/2, grid_lon[-1] + Δlon/2]]`. The steps come from the axes, or from `params` for a one-node axis. Latitude is clipped to ±85.0511, the Web Mercator limit. Unevenly spaced axes are rejected.
+- **Orientation (`density_overlay_rgba`):**
+  - Image row 0 is the **north** edge, and image column `c` is grid column `c`, because longitude is linear in Web Mercator.
+  - Leaflet stretches an overlay linearly in **Web Mercator**, but the KDE rows are evenly spaced in latitude. So each image row is placed at its centre's Mercator position, converted back to latitude, and filled from the nearest grid row (an exact tie goes to the southern row). The image is then passed with `mercator_project=False`.
+  - At city scale this equals a simple north-up flip. Over large latitude ranges it does not, which is tested over 0–60°.
+- **Colour:**
+  - `density / grid maximum`, interpolated linearly over 5 colour stops. The legend is the `LinearColormap` with ticks from 0 to 1, captioned "Relative density score — not incident counts or incidents/km²." The Density page adds that colours are scaled to this grid's maximum.
+  - Cells below 1% of the maximum are fully transparent and the rest are 65% opaque. This is rendering only; the `DensityResult` is never changed.
+- **High-density layer:** a separate overlay that can be switched on and off (hidden by default), drawn where `density >= high_density_threshold`. It is labelled as relative to this analysis and grid only.
+- **Limitations:**
+  - Each cell shows the estimate at its node, not an average over the cell.
+  - Cells are only approximately square.
+  - Validation reuses the Stage 6 checks (`_check_density`, `_check_cluster_result`), so a `DensityResult` must carry `params["n_points"]` and `grid_extent`.
+
+### Dashboard
+- **Sidebar parameters** (defaults from `DEFAULT_ANALYSIS_CONFIG`): `eps_m`, `min_samples`, `min_incidents`, `bandwidth_m`, `grid_cell_m`, `high_density_quantile`. They are validated by the existing dataclasses; an invalid value shows a sidebar error, and no analysis runs.
+- **Analyses:**
+  - Run only for a usable dataset, through `cluster_dataset`, `estimate_density` and `summarize_results`.
+  - Cached in `st.session_state["analysis_cache"]`. The cache is reused only when it holds the **same dataset object** and the same parameter key (`analysis_cache_key`, covering every config field); otherwise it is recomputed.
+  - Each analysis can fail on its own, and its `AnalysisError` text is shown. The KDE grid-cap error is shown as-is, never silently coarsened.
+- **Pages:**
+  - **Clusters:** cluster map, metrics, summary table, and a Plotly cluster-size chart (all members and members shown under filters; candidates outlined).
+  - **Density:** density map, legend and threshold explanation, and a table of the parameters used.
+  - **Summary:** the `SpatialSummary` values, with `None` shown as "Not run". Also the method-comparison 2×2 table and per-cluster table, the notes, and Plotly charts by severity and incident type (from `by_category`) and by date (`incidents_by_period`). Charts appear only when their columns exist.
+  - **Data:** unchanged.
+  - **History & Reports:** still a placeholder.
+- **Display-only filters** (Clusters page sidebar): severity and incident type (missing values appear as "(missing)"), "Show noise points", and "Candidate hotspots only".
+  - `dashboard.display_mask` builds a positional boolean mask that only selects what the cluster map and the "shown" bars draw.
+  - DBSCAN labels, KDE values, the summary and the comparison denominators always use **all** accepted incidents. Tests check that the cached result objects are unchanged after filtering.
+  - The density map and the Summary page say that the filters don't apply to them.
+
+### `incidents_by_period(dataset)`
+- **Input:** the Stage 2 date contract (ISO 8601 → datetime64, NaT for blank or unparseable).
+- **Missing dates:** NaT rows are counted in `missing_dates` and never imputed.
+- **Time zones:** time-zone-aware values, including mixed offsets that the validator leaves as an object column, are converted to UTC; naive values are used as-is.
+- **Period:** chosen from the span between the earliest and latest dates: ≤ 62 days → `"day"`, ≤ 1096 days → `"month"`, otherwise `"year"`. Every period between the first and the last is listed, with 0 where there are no incidents.
+- **Returns** `{"column_present", "period", "counts": DataFrame[period_start, incident_count], "dated_incidents", "missing_dates"}`.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

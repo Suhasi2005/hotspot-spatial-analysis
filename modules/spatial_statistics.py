@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from numbers import Integral
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -124,6 +125,56 @@ def summarize(
         notes=notes,
         method_comparison=comparison,
     )
+
+
+def incidents_by_period(dataset: CleanDataset) -> dict[str, Any]:
+    """Incident counts over time from the validated `incident_date` column.
+
+    Uses the Stage 2 contract as-is: incident_date is datetime64 parsed from
+    ISO 8601, with NaT for blank or unparseable dates. NaT rows are counted in
+    `missing_dates` and excluded from the counts; nothing is imputed. Time-zone
+    aware values are converted to UTC before grouping, including mixed offsets,
+    which the validator leaves as an object column; naive values are used as-is.
+
+    Period (deterministic, from the span between the earliest and latest date):
+    <= 62 days -> "day", <= 1096 days -> "month", otherwise "year". Every period
+    from the first to the last is listed, with 0 for periods without incidents.
+
+    Returns {"column_present": bool, "period": str | None,
+             "counts": DataFrame[period_start (datetime64), incident_count (int)],
+             "dated_incidents": int, "missing_dates": int}.
+    Raises AnalysisError for an unusable/empty dataset. The dataset is not mutated.
+    """
+    frame = dataset.frame
+    if not dataset.report.is_usable or frame.empty:
+        raise AnalysisError("Date counts cannot run: the dataset is unusable or has no accepted incidents.")
+    empty = pd.DataFrame({"period_start": pd.Series(dtype="datetime64[ns]"), "incident_count": pd.Series(dtype="int64")})
+    if "incident_date" not in frame.columns:
+        return {"column_present": False, "period": None, "counts": empty, "dated_incidents": 0, "missing_dates": 0}
+
+    column = frame["incident_date"]
+    if pd.api.types.is_datetime64_any_dtype(column):
+        dates = column.dt.tz_convert("UTC").dt.tz_localize(None) if column.dt.tz is not None else column
+    else:
+        # Mixed UTC offsets leave the validated column as objects (tz-aware datetimes or NaT):
+        # convert every value to UTC; NaT stays NaT.
+        dates = pd.to_datetime(column, utc=True, errors="coerce").dt.tz_localize(None)
+    dated = dates.dropna()
+    result = {"column_present": True, "period": None, "counts": empty,
+              "dated_incidents": int(dated.size), "missing_dates": int(dates.isna().sum())}
+    if dated.empty:
+        return result
+
+    span_days = (dated.max() - dated.min()).days
+    period, freq = ("day", "D") if span_days <= 62 else ("month", "M") if span_days <= 1096 else ("year", "Y")
+    periods = dated.dt.to_period(freq)
+    full_range = pd.period_range(periods.min(), periods.max(), freq=freq)
+    tally = periods.value_counts().reindex(full_range, fill_value=0)
+    result["period"] = period
+    result["counts"] = pd.DataFrame(
+        {"period_start": full_range.to_timestamp(), "incident_count": tally.to_numpy(dtype="int64")}
+    )
+    return result
 
 
 def compare_methods(clusters: ClusterResult, density: DensityResult) -> MethodComparison:

@@ -11,7 +11,7 @@
 | 7 | Cluster/density maps + dashboard | M4 | Cluster and heat layers, Plotly charts, filters | Done (`e054d97`): KDE grid image overlay, cluster map with all circles, display-only filters. |
 | 8 | Orchestration + history | M5 | `run_analysis`, SQLite history page, end-to-end test | Done (`b0b2af5`): `run_analysis`, `record_run` with configuration checks, SQLite history page. |
 | 9 | Reports | M5 | CSV + PDF with parameters and limitations | Done (`3da1f93`): incidents/clusters CSV, PDF with limitations and open items, `generate_reports` with rollback, downloads. |
-| 10 | Evaluation + final verification | All | Sensitivity analysis, full test run, docs updated to match the code, demo | In progress: 10A demonstration-readiness evaluation done; 10B UI/UX Phase 1 (design system: `.streamlit/config.toml`, `modules/ui_theme.py`) and Phase 2 (navigation, headers, dataset status, KPI strips, loading and empty states) done. Later UI phases and sensitivity analysis not started. |
+| 10 | Evaluation + final verification | All | Sensitivity analysis, full test run, docs updated to match the code, demo | In progress: 10A demonstration-readiness evaluation done; 10B UI/UX Phase 1 (design system: `.streamlit/config.toml`, `modules/ui_theme.py`) and Phase 2 (navigation, headers, dataset status, KPI strips, loading and empty states) and Phase 3 (Data, Clusters and Density page layouts) done. Later UI phases and sensitivity analysis not started. |
 
 ## Responsibilities
 - **M1 – Data management:** stages 2–3 (data side), `data_manager`, `data_validator`, dataset documentation.

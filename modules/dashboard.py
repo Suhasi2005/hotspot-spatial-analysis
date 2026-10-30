@@ -43,6 +43,7 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
+from modules.ui_theme import plotly_template
 
 PAGES: tuple[str, ...] = ("Data", "Clusters (DBSCAN)", "Density (KDE)", "Summary", "History & Reports")
 ANALYSIS_PAGES: tuple[str, ...] = ("Clusters (DBSCAN)", "Density (KDE)", "Summary")
@@ -59,6 +60,12 @@ HISTORY_LIMIT = 50
 # the app can be redirected with HOTSPOT_REPORTS_DIR).
 HISTORY_REPORTS_DIR = REPORTS_DIR
 REPORT_MIME = {".csv": "text/csv", ".pdf": "application/pdf"}
+
+# --- analysis pages (Stage 10B Phase 3) -------------------------------------------------
+FILTERS_LABEL = "Display filters — visualization only; analysis results remain unchanged."
+KDE_DISCLAIMER = ("KDE values are relative density scores. They are not incident counts or "
+                  "incidents per square kilometre.")
+MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Clusters and Density pages
 
 # --- application shell (Stage 10B Phase 2) ---------------------------------------------
 BRAND_NAME = "Hotspot Analytics"
@@ -298,26 +305,25 @@ def _analysis_results(dataset: CleanDataset, config: AnalysisConfig) -> dict[str
 
 
 def _render_clusters_page(results: dict[str, Any]) -> None:
-    st.caption(
-        "**Cluster map** — DBSCAN result on all accepted incidents. Coloured points = cluster members, "
-        "small grey points = noise, circles = each cluster's centroid and radius_m. A thick black outline "
-        "marks a candidate hotspot (size rule only, not statistical significance)."
-    )
     if results["cluster_error"]:
+        kpi_strip([("Clusters", NOT_RUN), ("Candidate hotspots", NOT_RUN), ("Noise incidents", NOT_RUN),
+                   ("Noise share", NOT_RUN)])
         st.error(f"DBSCAN failed: {results['cluster_error']}")
         return
     clusters: ClusterResult = results["clusters"]
     frame = clusters.labeled_frame
     candidates = {c.cluster_label for c in clusters.clusters if c.is_candidate_hotspot}
+    summary = results["summary"]
+    noise_share = NOT_RUN if summary is None or summary.noise_share is None else f"{summary.noise_share:.1%}"
 
     kpi_strip([
         ("Clusters", str(len(clusters.clusters))),
         ("Candidate hotspots", str(len(candidates))),
         ("Noise incidents", f"{clusters.noise_count:,} of {len(frame):,}"),
-        ("Analysis status", analysis_status(results)),
+        ("Noise share", noise_share),
     ])
 
-    filters = st.sidebar.expander("Display filters (display only)", expanded=True, icon=":material/filter_alt:")
+    filters = st.sidebar.expander(FILTERS_LABEL, expanded=True, icon=":material/filter_alt:")
     filters.caption("Change only what the cluster map and the 'shown' bars display. "
                     "DBSCAN, KDE and the summary always use all accepted incidents.")
     severities = _category_filter(filters, frame, "severity", "Severity (display only)")
@@ -327,17 +333,21 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
 
     mask = display_mask(frame, severities, types, show_noise, candidates if candidates_only else None)
     shown = int(mask.sum())
-    if shown > MAX_MAP_POINTS:
-        st.warning(
-            f"Only the first {MAX_MAP_POINTS:,} of {shown:,} selected incidents (in file order) are drawn as points. "
-            "This is NOT a representative sample. Every cluster circle is still drawn."
+    map_col, info_col = st.columns(MAP_PANEL_RATIO, gap="medium")
+    with map_col:
+        if shown > MAX_MAP_POINTS:
+            st.warning(
+                f"Only the first {MAX_MAP_POINTS:,} of {shown:,} selected incidents (in file order) are drawn as points. "
+                "This is NOT a representative sample. Every cluster circle is still drawn."
+            )
+        else:
+            st.caption(f"Showing {shown:,} of {len(frame):,} accepted incidents under the current display filters.")
+        st_folium(
+            build_cluster_map(clusters, MAX_MAP_POINTS, mask, candidates if candidates_only else None),
+            height=520, use_container_width=True, returned_objects=[], key="cluster_map",
         )
-    else:
-        st.caption(f"Showing {shown:,} of {len(frame):,} accepted incidents under the current display filters.")
-    st_folium(
-        build_cluster_map(clusters, MAX_MAP_POINTS, mask, candidates if candidates_only else None),
-        height=520, use_container_width=True, returned_objects=[], key="cluster_map",
-    )
+    with info_col:
+        _cluster_explanation(results["config"])
 
     if not clusters.clusters:
         st.info("DBSCAN found no clusters with these parameters; every incident is noise.")
@@ -358,21 +368,55 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
         ]
     )
     st.subheader("Cluster summaries")
-    st.dataframe(table, hide_index=True, width="stretch")
-    fig = go.Figure(
-        [
-            go.Bar(name="All members (analysis)", x=table["cluster"].astype(str), y=table["incidents"],
-                   marker_color=[cluster_color(c) for c in table["cluster"]],
-                   marker_line_color=["#000000" if c in candidates else "rgba(0,0,0,0)" for c in table["cluster"]],
-                   marker_line_width=3),
-            go.Bar(name="Shown under display filters", x=table["cluster"].astype(str), y=table["shown under filters"],
-                   marker_color="#bbbbbb"),
-        ]
-    )
-    fig.update_layout(barmode="group", title="Cluster sizes (black outline = candidate hotspot, size rule only)",
-                      xaxis_title="Cluster label (an identifier, not a rank)", yaxis_title="Incidents",
-                      legend_orientation="h")
-    st.plotly_chart(fig, width="stretch", key="chart_cluster_sizes")
+    table_tab, chart_tab = st.tabs(["Table", "Cluster sizes"])
+    with table_tab:
+        st.dataframe(
+            table, hide_index=True, width="stretch",
+            column_config={
+                "cluster": st.column_config.NumberColumn("Cluster", help="An identifier, not a rank", format="%d"),
+                "incidents": st.column_config.NumberColumn("Incidents", format="%d"),
+                "shown under filters": st.column_config.NumberColumn("Shown under filters", format="%d"),
+                "centroid lat": st.column_config.NumberColumn("Centroid lat", format="%.6f"),
+                "centroid lon": st.column_config.NumberColumn("Centroid lon", format="%.6f"),
+                "radius_m": st.column_config.NumberColumn("Radius (m)", format="%.1f"),
+                "candidate hotspot (size rule)": st.column_config.TextColumn("Candidate hotspot (size rule)"),
+            },
+        )
+    with chart_tab:
+        fig = go.Figure(
+            [
+                go.Bar(name="All members (analysis)", x=table["cluster"].astype(str), y=table["incidents"],
+                       marker_color=[cluster_color(c) for c in table["cluster"]],
+                       marker_line_color=["#000000" if c in candidates else "rgba(0,0,0,0)" for c in table["cluster"]],
+                       marker_line_width=3),
+                go.Bar(name="Shown under display filters", x=table["cluster"].astype(str), y=table["shown under filters"],
+                       marker_color="#bbbbbb"),
+            ]
+        )
+        fig.update_layout(template=plotly_template(), barmode="group",
+                          title="Cluster sizes (black outline = candidate hotspot, size rule only)",
+                          xaxis_title="Cluster label (an identifier, not a rank)", yaxis_title="Incidents",
+                          legend_orientation="h")
+        st.plotly_chart(fig, width="stretch", key="chart_cluster_sizes")
+
+
+def _cluster_explanation(config: AnalysisConfig) -> None:
+    """Legend and method notes beside the cluster map, using this run's parameters."""
+    with st.container(border=True):
+        st.markdown("**How to read this map**")
+        st.markdown(
+            "- **Coloured points:** members of a DBSCAN cluster, one colour per cluster.\n"
+            "- **Small grey points:** noise, i.e. incidents that belong to no cluster.\n"
+            "- **Circles:** each cluster's centroid and radius_m.\n"
+            "- **Thick black outline:** a candidate hotspot."
+        )
+        st.markdown("**Candidate hotspot rule**")
+        st.markdown(
+            f"A cluster with at least **{config.hotspot.min_incidents:,}** incidents (min_incidents). "
+            "This is a size rule only; it does not test statistical significance."
+        )
+        st.caption(f"DBSCAN parameters: eps_m = {config.dbscan.eps_m:g} m, "
+                   f"min_samples = {config.dbscan.min_samples:,}.")
 
 
 def _category_filter(container, frame: pd.DataFrame, column: str, label: str) -> set[str] | None:
@@ -387,10 +431,6 @@ def _category_filter(container, frame: pd.DataFrame, column: str, label: str) ->
 
 
 def _render_density_page(results: dict[str, Any]) -> None:
-    st.caption(
-        "**Density map** — the KDE surface computed from all accepted incidents, drawn grid cell by grid cell. "
-        "Display filters do not apply here."
-    )
     if results["density_error"]:
         st.error(f"KDE did not run: {results['density_error']}")
         return
@@ -402,13 +442,30 @@ def _render_density_page(results: dict[str, Any]) -> None:
         ("Bandwidth", f"{p['bandwidth_m']:g} m"),
         ("Analysis status", analysis_status(results)),
     ])
-    st_folium(build_density_map(density), height=520, use_container_width=True, returned_objects=[], key="density_map")
+    map_col, info_col = st.columns(MAP_PANEL_RATIO, gap="medium")
+    with map_col:
+        st.caption("KDE surface computed from all accepted incidents, drawn grid cell by grid cell. "
+                   "Display filters do not apply here.")
+        st_folium(build_density_map(density), height=520, use_container_width=True, returned_objects=[],
+                  key="density_map")
+    with info_col, st.container(border=True):
+        st.markdown("**How to read this map**")
+        st.info(KDE_DISCLAIMER, icon=":material/info:")
+        st.markdown(
+            "- **KDE** spreads each incident over its surroundings with a smooth kernel and adds them up.\n"
+            f"- **Bandwidth ({p['bandwidth_m']:g} m):** how far each incident spreads; larger values give a "
+            "smoother surface.\n"
+            f"- **Grid cell ({p['grid_cell_m']:g} m):** the size of each coloured square.\n"
+            "- **Relative scores:** compare cells within this map only."
+        )
+        st.markdown(
+            f"**High-density layer** (switch on in the map's layer control): cells with density ≥ the "
+            f"{p['high_density_quantile']:.0%} quantile of this grid. This is relative to this analysis and grid "
+            "extent only; it is not statistically significant risk."
+        )
     st.markdown(
         f"- **Colour scale:** {DENSITY_LEGEND} {DENSITY_SCALE_NOTE} Cells below {DENSITY_TRANSPARENT_BELOW:.0%} "
         "of the grid maximum are drawn transparent so the basemap stays visible; the values themselves are unchanged.\n"
-        f"- **High-density layer** (switch on in the map's layer control): cells with density ≥ the "
-        f"{p['high_density_quantile']:.0%} quantile of this grid. This is relative to this analysis and grid "
-        "extent only; it is not statistically significant risk.\n"
         "- Values depend on the bandwidth and the grid extent, so they are not comparable across runs with "
         "different settings or data.\n"
         "- Each cell shows the estimate at its centre node; the grid is approximately square and is placed on "
@@ -429,7 +486,11 @@ def _render_density_page(results: dict[str, Any]) -> None:
     )
     params_table["value"] = params_table["value"].astype(str)
     st.subheader("Parameters used")
-    st.dataframe(params_table, hide_index=True, width="stretch")
+    st.caption(f"Bandwidth {p['bandwidth_m']:g} m · Grid cell {p['grid_cell_m']:g} m · "
+               f"Threshold quantile {p['high_density_quantile']:g} · Kernel {p['kernel']} · "
+               f"Threshold score {density.high_density_threshold:.4g}")
+    with st.expander("All KDE parameters", icon=":material/table_rows:"):
+        st.dataframe(params_table, hide_index=True, width="stretch")
 
 
 # --- Summary page -----------------------------------------------------------------------
@@ -659,16 +720,20 @@ def render_data_page() -> None:
     """Load a CSV (sample or upload), validate it, and show the quality report."""
     _page_header("Data")
     samples = list_sample_datasets()
-    mode = st.radio("Source", ("Upload a CSV", "Sample dataset"), horizontal=True)
+    with st.container(border=True):
+        st.markdown("**Data source**")
+        st.caption("Upload a CSV with incident_id, latitude and longitude columns (WGS84 decimal degrees); "
+                   "severity, incident_type and incident_date are optional. Or choose a bundled sample dataset.")
+        mode = st.radio("Source", ("Upload a CSV", "Sample dataset"), horizontal=True)
 
-    source = None
-    if mode == "Sample dataset":
-        if not samples:
-            st.info("No sample datasets in data/sample yet.")
+        source = None
+        if mode == "Sample dataset":
+            if not samples:
+                st.info("No sample datasets in data/sample yet.")
+            else:
+                source = st.selectbox("Sample file", samples, format_func=lambda p: p.name)
         else:
-            source = st.selectbox("Sample file", samples, format_func=lambda p: p.name)
-    else:
-        source = st.file_uploader("CSV file", type=["csv"])
+            source = st.file_uploader("CSV file", type=["csv"])
 
     if source is None:
         st.session_state.pop("dataset", None)
@@ -685,43 +750,60 @@ def render_data_page() -> None:
     _render_validation(dataset)
 
 
+def validation_status(report) -> str:
+    """Validation status KPI: Ready, Ready with rejections, or Unusable (from the existing report)."""
+    if not report.is_usable:
+        return "Unusable"
+    return "Ready with rejections" if report.rejected_rows else "Ready"
+
+
 def _render_validation(dataset: CleanDataset) -> None:
     report = dataset.report
+    st.subheader("Validation summary")
+    st.caption(f"File: {escape_markdown(dataset.source_name)}")
     kpi_strip([
         ("Rows in file", f"{report.total_rows:,}"),
         ("Accepted", f"{report.valid_rows:,}"),
         ("Rejected", f"{report.rejected_rows:,}"),
+        ("Validation status", validation_status(report)),
     ])
 
     if not report.is_usable:
         st.error(
             "No valid rows remain, so this dataset is unusable. "
-            "Spatial analysis will not run. Fix the issues below and upload again."
+            "Spatial analysis will not run. Fix the issues below and upload again.",
+            icon=":material/error:",
         )
     elif report.rejected_rows:
-        st.warning(f"{report.rejected_rows:,} row(s) were rejected and excluded from analysis.")
+        st.warning(f"{report.rejected_rows:,} row(s) were rejected and excluded from analysis. "
+                   "The dataset is ready for analysis with the accepted rows.", icon=":material/warning:")
     else:
-        st.success("All rows passed validation.")
-
-    if report.issues:
-        st.subheader("Validation issues")
-        st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
-        st.dataframe(summarize_quality(report), hide_index=True, width="stretch")
+        st.success("All rows passed validation. The dataset is ready for analysis.", icon=":material/check_circle:")
 
     present = ", ".join(report.optional_columns_present) or "none"
     extra = ", ".join(report.extra_columns_preserved) or "none"
     st.caption(f"Optional columns present: {present}. Extra columns preserved: {extra}.")
 
-    _render_incident_map(dataset)
-
-    if report.is_usable:
-        st.subheader(f"Accepted rows (first {min(PREVIEW_ROWS, report.valid_rows):,})")
-        st.dataframe(dataset.frame.head(PREVIEW_ROWS), width="stretch")
+    map_tab, issues_tab, preview_tab = st.tabs(
+        ["Incident Map", f"Validation Issues ({len(report.issues):,})", "Data Preview"])
+    with map_tab:
+        _render_incident_map(dataset)
+    with issues_tab:
+        if report.issues:
+            st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
+            st.dataframe(summarize_quality(report), hide_index=True, width="stretch")
+        else:
+            st.caption("No validation issues.")
+    with preview_tab:
+        if report.is_usable:
+            st.caption(f"Accepted rows (first {min(PREVIEW_ROWS, report.valid_rows):,} of {report.valid_rows:,}).")
+            st.dataframe(dataset.frame.head(PREVIEW_ROWS), width="stretch")
+        else:
+            st.caption("No accepted rows to preview.")
 
 
 def _render_incident_map(dataset: CleanDataset) -> None:
     """Base point map of accepted incidents. No clustering or density layers."""
-    st.subheader("Incident map")
     if not dataset.report.is_usable or dataset.frame.empty:
         st.info("Map not shown: there are no accepted incidents to plot.")
         return

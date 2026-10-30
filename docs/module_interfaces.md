@@ -378,9 +378,15 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - **Density:** Incidents used, Grid cells, Bandwidth, Analysis status.
   - **Summary:** Rows in file, Accepted incidents, Rejected, Analysis status, Clusters, Candidate hotspots, Noise incidents, Noise share.
   - **History:** Saved runs, Runs with reports.
-- **Sidebar:** analysis parameters are in a collapsed "Analysis parameters" expander. Display filters are in a separate "Display filters (display only)" expander on the Clusters page only. Widget keys are unchanged.
+- **Sidebar:** analysis parameters are in a collapsed "Analysis parameters" expander. Display filters are in a separate expander on the Clusters page only (renamed in Phase 3). Widget keys are unchanged.
 - **Loading:** `st.spinner` messages wrap DBSCAN, KDE and the summary. With the small sample these finish in well under a second, so the spinner is rarely visible.
 - **Empty states:** same texts and message types, with Material icons added.
+
+## Stage 10B Phase 3 (analysis pages)
+Layout and wording only. DBSCAN, KDE, the summary, validation, parameters, map colours, reports and widget keys are unchanged.
+- **Data:** a bordered "Data source" card (upload instructions, the radio, the uploader or sample selector). Below it, "Validation summary" shows the escaped file name and the KPIs Rows in file, Accepted, Rejected and Validation status (`validation_status`: Ready · Ready with rejections · Unusable). One success, warning or error message says whether the dataset is ready for analysis. Then the tabs "Incident Map", "Validation Issues (n)" and "Data Preview".
+- **Clusters:** the KPIs are Clusters, Candidate hotspots, Noise incidents and Noise share. Noise share comes from `summary.noise_share`; all four show `NOT_RUN` when DBSCAN failed. The analysis status stays in the sidebar status block. The map and an explanation panel sit side by side (`MAP_PANEL_RATIO` 2 : 1; stacked on narrow screens). The panel covers the legend and the min_incidents size rule from this run's configuration, and makes no significance claim. The cluster summaries are in "Table" and "Cluster sizes" tabs; the chart uses `ui_theme.plotly_template()` with its existing bar colours. The filter expander is labelled `FILTERS_LABEL` ("Display filters — visualization only; analysis results remain unchanged."), and filter behaviour is unchanged.
+- **Density:** the map and an info panel sit side by side. The panel holds `KDE_DISCLAIMER` and short notes on KDE, bandwidth, grid cell, relative scores and the threshold layer. The colour-scale notes are kept. "Parameters used" shows a one-line summary, with the full table in an "All KDE parameters" expander.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

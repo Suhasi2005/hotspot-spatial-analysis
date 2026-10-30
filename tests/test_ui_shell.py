@@ -15,6 +15,7 @@ from modules.dashboard import (
     BRAND_NAME,
     BRAND_TAGLINE,
     CACHE_KEY,
+    FILTERS_LABEL,
     KPI_PER_ROW,
     NOT_RUN,
     PAGE_INFO,
@@ -177,7 +178,7 @@ def test_kpis_show_not_run_when_dbscan_did_not_produce_results(monkeypatch):
 def test_clusters_and_density_kpis():
     clusters = _metrics(_app("Clusters (DBSCAN)", _dataset()))
     assert clusters == {"Clusters": "2", "Candidate hotspots": "1", "Noise incidents": "1 of 19",
-                        "Analysis status": "Complete"}
+                        "Noise share": "5.3%"}                               # Phase 3 KPI set
     density = _metrics(_app("Density (KDE)", _dataset()))
     assert density["Incidents used"] == "19" and density["Bandwidth"] == "300 m"
     assert " × " in density["Grid cells"] and density["Analysis status"] == "Complete"
@@ -189,7 +190,7 @@ def test_clusters_and_density_kpis():
 def test_parameters_are_collapsible_and_filters_only_on_clusters():
     clusters = _app("Clusters (DBSCAN)", _dataset())
     labels = [e.label for e in clusters.sidebar.expander]
-    assert labels == ["Analysis parameters", "Display filters (display only)"]
+    assert labels == ["Analysis parameters", FILTERS_LABEL]
     for page in ("Density (KDE)", "Summary"):
         assert [e.label for e in _app(page, _dataset()).sidebar.expander] == ["Analysis parameters"]
     assert [e.label for e in _app("Data").sidebar.expander] == []

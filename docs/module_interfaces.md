@@ -356,6 +356,12 @@ The signatures exist in code now. Functions marked *done* are implemented and te
   - Both pages show the CSV safety warning.
   - Tests patch `HISTORY_REPORTS_DIR`. The app itself uses `REPORTS_DIR`, which can be redirected with `HOTSPOT_REPORTS_DIR`.
 
+## Stage 10B Phase 1 (design system)
+- **`.streamlit/config.toml`** applies the approved palette, typography (Inter; body 15 px; h1/h2 28 px, h3 20 px, h4 16 px at weight 600; metric values 28 px), widget borders, a 6 px radius, the navy sidebar, status colours and native chart colours. It uses Streamlit's native theme only, with no custom CSS.
+- **`modules/ui_theme.py`** holds the same values as constants, plus `plotly_template()`. This is a Plotly template that is not registered globally; pages opt in later. The module does **not** import Streamlit. It only references the analytical palettes from `map_visualization`, so cluster, noise, density and threshold colours are unchanged.
+- **Font fallback:** Streamlit 1.66 keeps only the first font family, so the effective UI stack is Inter → Streamlit's bundled Source Sans → sans-serif. Plotly charts use the full `FONT_STACK`.
+- **Unchanged:** page code, widget labels and keys, and behaviour. `tests/test_ui_theme.py` checks the tokens, that the TOML agrees with the module, WCAG contrast, the template, and the palettes.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

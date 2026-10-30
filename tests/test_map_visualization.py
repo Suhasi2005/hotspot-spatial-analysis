@@ -459,3 +459,19 @@ def test_density_map_does_not_mutate_and_is_deterministic():
     assert density_overlay_bounds(d) == density_overlay_bounds(d)
     after = (d.grid_lat, d.grid_lon, d.density, d.params, d.high_density_threshold)
     assert all(np.array_equal(a, b) for a, b in zip(after[:3], before[:3])) and after[3:] == before[3:]
+
+
+def test_layer_controls_start_collapsed_and_avoid_the_legend():
+    """Stage 10B fix: collapsed layer control top-right, zoom bottom-left; layers unchanged."""
+    from modules.map_visualization import LAYER_CONTROL_POSITION, ZOOM_CONTROL_POSITION
+
+    values = np.arange(12, dtype="float64").reshape(3, 4)
+    density = build_density_map(_density([23.00, 23.01, 23.02], [72.50, 72.51, 72.52, 72.53], values, 6.0))
+    clusters = build_cluster_map(_two_cluster_result())
+    assert (LAYER_CONTROL_POSITION, ZOOM_CONTROL_POSITION) == ("topright", "bottomleft")
+    for fmap in (density, clusters):
+        controls = [c for c in fmap._children.values() if type(c).__name__ == "LayerControl"]
+        assert len(controls) == 1
+        assert controls[0].options["collapsed"] is True and controls[0].options["position"] == "topright"
+        assert '"zoomControl": false' in fmap.get_root().render() or "zoomControl: false" in fmap.get_root().render()
+        assert "bottomleft" in fmap.get_root().render()

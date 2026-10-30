@@ -388,6 +388,12 @@ Layout and wording only. DBSCAN, KDE, the summary, validation, parameters, map c
 - **Clusters:** the KPIs are Clusters, Candidate hotspots, Noise incidents and Noise share. Noise share comes from `summary.noise_share`; all four show `NOT_RUN` when DBSCAN failed. The analysis status stays in the sidebar status block. The map and an explanation panel sit side by side (`MAP_PANEL_RATIO` 2 : 1; stacked on narrow screens). The panel covers the legend and the min_incidents size rule from this run's configuration, and makes no significance claim. The cluster summaries are in "Table" and "Cluster sizes" tabs; the chart uses `ui_theme.plotly_template()` with its existing bar colours. The filter expander is labelled `FILTERS_LABEL` ("Display filters — visualization only; analysis results remain unchanged."), and filter behaviour is unchanged.
 - **Density:** the map and an info panel sit side by side. The panel holds `KDE_DISCLAIMER` and short notes on KDE, bandwidth, grid cell, relative scores and the threshold layer. The colour-scale notes are kept. "Parameters used" shows a one-line summary, with the full table in an "All KDE parameters" expander.
 
+## Stage 10B responsive fix (charts and map controls)
+Rendering only; layers, layer names, colours and data are unchanged.
+- Cluster and density maps: the layer control starts collapsed in the top-right (`LAYER_CONTROL_POSITION`) and expands on hover or tap; zoom is bottom-left (`ZOOM_CONTROL_POSITION`). The incident map has a single layer and no layer control.
+- `DENSITY_LEGEND_WIDTH_PX` is 480 (the caption still fits) so the legend fits the two-thirds map at 1280 px. At phone width the legend is still wider than the map and its left end is cut off (open item).
+- Cluster-size chart: a two-line title, the legend below the plot and automargins, so nothing is cut off or overlapping at 390 px.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

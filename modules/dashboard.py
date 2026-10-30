@@ -393,10 +393,16 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
                        marker_color="#bbbbbb"),
             ]
         )
+        # Short wrapped title, legend below the plot and automargins so nothing is
+        # clipped or overlapped at phone width; data and bar colours are unchanged.
         fig.update_layout(template=plotly_template(), barmode="group",
-                          title="Cluster sizes (black outline = candidate hotspot, size rule only)",
+                          title={"text": "Cluster sizes<br><sup>Black outline = candidate hotspot (size rule only)</sup>",
+                                 "x": 0, "xanchor": "left", "y": 0.97, "yanchor": "top"},
                           xaxis_title="Cluster label (an identifier, not a rank)", yaxis_title="Incidents",
-                          legend_orientation="h")
+                          legend={"orientation": "h", "x": 0, "xanchor": "left", "y": -0.3, "yanchor": "top"},
+                          margin={"l": 48, "r": 16, "t": 64, "b": 96}, height=400)
+        fig.update_xaxes(automargin=True)
+        fig.update_yaxes(automargin=True)
         st.plotly_chart(fig, width="stretch", key="chart_cluster_sizes")
 
 

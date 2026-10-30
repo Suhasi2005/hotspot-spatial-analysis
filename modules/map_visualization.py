@@ -48,7 +48,12 @@ CANDIDATE_TOOLTIP = "Candidate hotspot — size rule only (not statistical signi
 # --- density map -----------------------------------------------------------------
 DENSITY_LEGEND = "Relative density score — not incident counts or incidents/km²."
 DENSITY_SCALE_NOTE = "Colours are scaled from 0 to 1 relative to this grid's maximum density score."
-DENSITY_LEGEND_WIDTH_PX = 560
+DENSITY_LEGEND_WIDTH_PX = 480    # fits the caption and the 2/3-width map at 1280 px (Stage 10B fix)
+# Map controls (rendering only): layer controls start collapsed in the top-right corner,
+# where Leaflet stacks them under the density legend; zoom moves to the bottom-left so
+# neither overlaps the legend.
+LAYER_CONTROL_POSITION = "topright"
+ZOOM_CONTROL_POSITION = "bottomleft"
 DENSITY_COLORS: tuple[str, ...] = ("#ffffb2", "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026")
 DENSITY_OPACITY = 0.65
 # Cells below this fraction of the grid maximum are drawn fully transparent so the
@@ -206,7 +211,8 @@ def build_cluster_map(
         lats = frame["latitude"].to_numpy(dtype="float64").tolist()
         lons = frame["longitude"].to_numpy(dtype="float64").tolist()
     south, north, west, east = min(lats), max(lats), min(lons), max(lons)
-    fmap = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=SINGLE_POINT_ZOOM, control_scale=True)
+    fmap = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=SINGLE_POINT_ZOOM, control_scale=True,
+                      zoom_control=ZOOM_CONTROL_POSITION)
 
     circles = folium.FeatureGroup(name="Cluster extents (centroid + radius_m)")
     for c in summaries:
@@ -241,7 +247,7 @@ def build_cluster_map(
             **style,
         ).add_to(points)
     points.add_to(fmap)
-    folium.LayerControl(collapsed=False, position="topleft").add_to(fmap)
+    folium.LayerControl(collapsed=True, position=LAYER_CONTROL_POSITION).add_to(fmap)
     if (south, west) != (north, east):
         fmap.fit_bounds([[south, west], [north, east]], padding=(20, 20))
     return fmap
@@ -310,7 +316,8 @@ def build_density_map(result: DensityResult) -> folium.Map:
     """
     bounds = density_overlay_bounds(result)
     (south, west), (north, east) = bounds
-    fmap = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=SINGLE_POINT_ZOOM, control_scale=True)
+    fmap = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=SINGLE_POINT_ZOOM, control_scale=True,
+                      zoom_control=ZOOM_CONTROL_POSITION)
     ImageOverlay(
         image=density_overlay_rgba(result), bounds=bounds, origin="upper", mercator_project=False,
         pixelated=True, name="KDE relative density", overlay=True, control=True, show=True,
@@ -320,7 +327,7 @@ def build_density_map(result: DensityResult) -> folium.Map:
         mercator_project=False, pixelated=True, name=THRESHOLD_LAYER_NAME, overlay=True, control=True, show=False,
     ).add_to(fmap)
     _density_colormap().add_to(fmap)
-    folium.LayerControl(collapsed=False, position="topleft").add_to(fmap)
+    folium.LayerControl(collapsed=True, position=LAYER_CONTROL_POSITION).add_to(fmap)
     fmap.fit_bounds(bounds)
     return fmap
 

@@ -52,6 +52,17 @@ CAPTION_PX = 13                   # Streamlit captions are 0.875rem = 13.1px at 
 HEADING_WEIGHT = 600
 METRIC_VALUE_PX = 28
 
+# --- Application shell (Stage 10B Phase 2) ----------------------------------------------
+# Streamlit marks the current page link only through internal styling, so app.py wraps
+# that one link in st.container(key=NAV_ACTIVE_KEY); keyed containers get the stable
+# CSS class "st-key-<key>". This is the only custom CSS: static, built from the tokens
+# above, never from user data.
+NAV_ACTIVE_KEY = "nav_active"
+SHELL_CSS = (
+    f".st-key-{NAV_ACTIVE_KEY} a {{ background-color: {ACCENT} !important; }}\n"
+    f".st-key-{NAV_ACTIVE_KEY} a span, .st-key-{NAV_ACTIVE_KEY} a p {{ color: {SURFACE} !important; }}\n"
+)
+
 # --- Charts ----------------------------------------------------------------------------
 # Single-series charts use the accent; categorical charts reuse the map's cluster
 # palette so a cluster has the same colour on the map and in a chart.

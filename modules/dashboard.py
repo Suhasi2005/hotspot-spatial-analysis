@@ -60,9 +60,37 @@ HISTORY_LIMIT = 50
 HISTORY_REPORTS_DIR = REPORTS_DIR
 REPORT_MIME = {".csv": "text/csv", ".pdf": "application/pdf"}
 
+# --- application shell (Stage 10B Phase 2) ---------------------------------------------
+BRAND_NAME = "Hotspot Analytics"
+BRAND_TAGLINE = "Spatial Incident Analysis"
+KPI_PER_ROW = 4
+# Page name (as used by render_page and the tests) -> navigation label, Material icon,
+# URL path and the one-line description shown under the page title.
+PAGE_INFO: dict[str, tuple[str, str, str, str]] = {
+    "Data": ("Data", ":material/upload_file:", "data", "Import and validate incident datasets."),
+    "Clusters (DBSCAN)": ("Clusters", ":material/hub:", "clusters", "Discover spatial clusters using DBSCAN."),
+    "Density (KDE)": ("Density", ":material/blur_on:", "density", "Explore relative spatial density using KDE."),
+    "Summary": ("Summary", ":material/insights:", "summary", "Compare analytical methods and review results."),
+    "History & Reports": ("History & Reports", ":material/history:", "history",
+                          "Access saved analyses and generated reports."),
+}
+
 
 def render_page(name: str) -> None:
-    """Render one page. History & Reports shows saved runs; reports arrive in Stage 9."""
+    """Render one page plus the sidebar dataset-status block.
+
+    The status block is created first (so it sits under the navigation) and
+    filled after the page has run, so it reflects this run's dataset and
+    analysis results.
+    """
+    status_box = st.sidebar.container()
+    try:
+        _render_page_body(name)
+    finally:
+        _render_dataset_status(status_box)
+
+
+def _render_page_body(name: str) -> None:
     if name == "Data":
         render_data_page()
         return
@@ -75,16 +103,17 @@ def render_page(name: str) -> None:
         return
 
     config = _sidebar_config()
-    st.header(name)
+    _page_header(name)
     dataset = st.session_state.get("dataset")
     if dataset is None:
-        st.info("No dataset loaded. Load and validate a CSV on the Data page first.")
+        st.info("No dataset loaded. Load and validate a CSV on the Data page first.", icon=":material/upload_file:")
         return
     if not dataset.report.is_usable:
-        st.warning("The loaded dataset is unusable (no accepted incidents), so no analysis runs. Fix it on the Data page.")
+        st.warning("The loaded dataset is unusable (no accepted incidents), so no analysis runs. Fix it on the Data page.",
+                   icon=":material/report:")
         return
     if config is None:
-        st.error("Analysis parameters are invalid; fix them in the sidebar. No analysis was run.")
+        st.error("Analysis parameters are invalid; fix them in the sidebar. No analysis was run.", icon=":material/tune:")
         return
     results = _analysis_results(dataset, config)
     if name == "Clusters (DBSCAN)":
@@ -93,6 +122,44 @@ def render_page(name: str) -> None:
         _render_density_page(results)
     else:
         _render_summary_page(dataset, results)
+
+
+def _page_header(name: str) -> None:
+    """Page title (unchanged text) plus its one-line description."""
+    st.header(name)
+    st.caption(PAGE_INFO[name][3])
+
+
+def kpi_strip(items: list[tuple[str, str]]) -> None:
+    """KPI cards from (label, value) pairs, at most KPI_PER_ROW per row.
+
+    Values are shown exactly as given; callers pass existing values only and use
+    NOT_RUN when an analysis has not produced one.
+    """
+    for row in kpi_rows(items):
+        for column, (label, value) in zip(st.columns(KPI_PER_ROW), row):
+            column.metric(label, value, border=True)
+
+
+def _render_dataset_status(box) -> None:
+    """Sidebar summary of the current dataset and last analysis (session state only)."""
+    dataset = st.session_state.get("dataset")
+    with box:
+        st.markdown("**Dataset**")
+        if dataset is None:
+            st.caption("No dataset loaded.")
+            return
+        report = dataset.report
+        entry = st.session_state.get(CACHE_KEY)
+        current = entry if entry is not None and entry.get("dataset") is dataset else None
+        lines = [
+            escape_markdown(dataset.source_name),
+            f"Rows {report.total_rows:,} · Accepted {report.valid_rows:,} · Rejected {report.rejected_rows:,}",
+            f"Analysis: {analysis_status(current) if report.is_usable else 'Dataset unusable'}",
+        ]
+        if current is not None and current.get("saved_run_id"):
+            lines.append(f"Saved run: {current['saved_run_id'][:8]}")
+        st.caption("  \n".join(lines))
 
 
 # --- pure helpers (no Streamlit) ---------------------------------------------------
@@ -136,14 +203,41 @@ def analysis_cache_key(config: AnalysisConfig) -> tuple:
     return tuple(sorted((k, repr(v)) for k, v in asdict(config).items()))
 
 
+def kpi_rows(items: list[tuple[str, str]], per_row: int = KPI_PER_ROW) -> list[list[tuple[str, str]]]:
+    """Split KPI (label, value) pairs into rows of at most `per_row`."""
+    return [items[i:i + per_row] for i in range(0, len(items), per_row)]
+
+
+def analysis_status(entry: dict[str, Any] | None) -> str:
+    """Plain status of an analysis cache entry: NOT_RUN, Complete, Partial or Failed."""
+    if entry is None:
+        return NOT_RUN
+    if entry.get("cluster_error") and entry.get("density_error"):
+        return "Failed"
+    if entry.get("cluster_error"):
+        return "Partial — DBSCAN failed"
+    if entry.get("density_error"):
+        return "Partial — KDE failed"
+    if entry.get("summary_error"):
+        return "Partial — summary failed"
+    return "Complete"
+
+
+_MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>$")
+
+
+def escape_markdown(text: str) -> str:
+    """Backslash-escape Markdown/LaTeX characters so user text renders literally."""
+    return "".join("\\" + ch if ch in _MARKDOWN_SPECIAL else ch for ch in str(text))
+
+
 # --- analysis lifecycle ----------------------------------------------------------------
 
 
 def _sidebar_config() -> AnalysisConfig | None:
     """Analysis parameters from the sidebar; defaults from config; validated by the dataclasses."""
     d = DEFAULT_ANALYSIS_CONFIG
-    sb = st.sidebar
-    sb.subheader("Analysis parameters")
+    sb = st.sidebar.expander("Analysis parameters", icon=":material/tune:")
     sb.caption("Changing these re-runs DBSCAN and KDE on all accepted incidents.")
     eps_m = sb.number_input("DBSCAN eps_m (metres)", value=float(d.dbscan.eps_m), step=50.0, key="p_eps_m")
     min_samples = sb.number_input("DBSCAN min_samples", value=int(d.dbscan.min_samples), step=1, key="p_min_samples")
@@ -181,18 +275,21 @@ def _analysis_results(dataset: CleanDataset, config: AnalysisConfig) -> dict[str
     entry: dict[str, Any] = {"dataset": dataset, "key": key, "config": config,
                              "clusters": None, "cluster_error": None, "density": None, "density_error": None,
                              "summary": None, "summary_error": None}
-    try:
-        entry["clusters"] = cluster_dataset(dataset, config)
-    except AnalysisError as exc:
-        entry["cluster_error"] = str(exc)
-    try:
-        entry["density"] = estimate_density(dataset, config)
-    except AnalysisError as exc:
-        entry["density_error"] = str(exc)
-    try:
-        entry["summary"] = summarize_results(dataset, entry["clusters"], entry["density"])
-    except AnalysisError as exc:
-        entry["summary_error"] = str(exc)
+    with st.spinner("Running DBSCAN clustering… Please wait."):
+        try:
+            entry["clusters"] = cluster_dataset(dataset, config)
+        except AnalysisError as exc:
+            entry["cluster_error"] = str(exc)
+    with st.spinner("Running KDE density estimation… Please wait."):
+        try:
+            entry["density"] = estimate_density(dataset, config)
+        except AnalysisError as exc:
+            entry["density_error"] = str(exc)
+    with st.spinner("Summarising results…"):
+        try:
+            entry["summary"] = summarize_results(dataset, entry["clusters"], entry["density"])
+        except AnalysisError as exc:
+            entry["summary_error"] = str(exc)
     st.session_state[CACHE_KEY] = entry
     return entry
 
@@ -213,18 +310,20 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
     frame = clusters.labeled_frame
     candidates = {c.cluster_label for c in clusters.clusters if c.is_candidate_hotspot}
 
-    total, cands, noise = st.columns(3)
-    total.metric("Clusters", len(clusters.clusters))
-    cands.metric("Candidate hotspots", len(candidates))
-    noise.metric("Noise incidents", f"{clusters.noise_count:,} of {len(frame):,}")
+    kpi_strip([
+        ("Clusters", str(len(clusters.clusters))),
+        ("Candidate hotspots", str(len(candidates))),
+        ("Noise incidents", f"{clusters.noise_count:,} of {len(frame):,}"),
+        ("Analysis status", analysis_status(results)),
+    ])
 
-    st.sidebar.subheader("Display filters")
-    st.sidebar.caption("Change only what the cluster map and the 'shown' bars display. "
-                       "DBSCAN, KDE and the summary always use all accepted incidents.")
-    severities = _category_filter(frame, "severity", "Severity (display only)")
-    types = _category_filter(frame, "incident_type", "Incident type (display only)")
-    show_noise = st.sidebar.checkbox("Show noise points", value=True, key="f_show_noise")
-    candidates_only = st.sidebar.checkbox("Candidate hotspots only", value=False, key="f_candidates_only")
+    filters = st.sidebar.expander("Display filters (display only)", expanded=True, icon=":material/filter_alt:")
+    filters.caption("Change only what the cluster map and the 'shown' bars display. "
+                    "DBSCAN, KDE and the summary always use all accepted incidents.")
+    severities = _category_filter(filters, frame, "severity", "Severity (display only)")
+    types = _category_filter(filters, frame, "incident_type", "Incident type (display only)")
+    show_noise = filters.checkbox("Show noise points", value=True, key="f_show_noise")
+    candidates_only = filters.checkbox("Candidate hotspots only", value=False, key="f_candidates_only")
 
     mask = display_mask(frame, severities, types, show_noise, candidates if candidates_only else None)
     shown = int(mask.sum())
@@ -276,11 +375,11 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
     st.plotly_chart(fig, width="stretch", key="chart_cluster_sizes")
 
 
-def _category_filter(frame: pd.DataFrame, column: str, label: str) -> set[str] | None:
+def _category_filter(container, frame: pd.DataFrame, column: str, label: str) -> set[str] | None:
     if column not in frame.columns:
         return None
     options = sorted(category_values(frame[column]).unique(), key=lambda v: (v == MISSING_LABEL, v))
-    chosen = st.sidebar.multiselect(label, options, default=options, key=f"f_{column}")
+    chosen = container.multiselect(label, options, default=options, key=f"f_{column}")
     return set(chosen)
 
 
@@ -297,6 +396,12 @@ def _render_density_page(results: dict[str, Any]) -> None:
         return
     density = results["density"]
     p = density.params
+    kpi_strip([
+        ("Incidents used", f"{p['n_points']:,}"),
+        ("Grid cells", f"{density.density.shape[0]} × {density.density.shape[1]}"),
+        ("Bandwidth", f"{p['bandwidth_m']:g} m"),
+        ("Analysis status", analysis_status(results)),
+    ])
     st_folium(build_density_map(density), height=520, use_container_width=True, returned_objects=[], key="density_map")
     st.markdown(
         f"- **Colour scale:** {DENSITY_LEGEND} {DENSITY_SCALE_NOTE} Cells below {DENSITY_TRANSPARENT_BELOW:.0%} "
@@ -339,11 +444,18 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
         st.error(f"Summary failed: {results['summary_error']}")
         return
     s = results["summary"]
-    a, b, c, d = st.columns(4)
-    a.metric("Accepted incidents", f"{s.incident_count:,}")
-    b.metric("Clusters", NOT_RUN if s.cluster_count is None else s.cluster_count)
-    c.metric("Candidate hotspots", NOT_RUN if s.candidate_hotspot_count is None else s.candidate_hotspot_count)
-    d.metric("Noise share", NOT_RUN if s.noise_share is None else f"{s.noise_share:.1%}")
+    report = dataset.report
+    clusters = results["clusters"]
+    kpi_strip([
+        ("Rows in file", f"{report.total_rows:,}"),
+        ("Accepted incidents", f"{s.incident_count:,}"),
+        ("Rejected", f"{report.rejected_rows:,}"),
+        ("Analysis status", analysis_status(results)),
+        ("Clusters", NOT_RUN if s.cluster_count is None else str(s.cluster_count)),
+        ("Candidate hotspots", NOT_RUN if s.candidate_hotspot_count is None else str(s.candidate_hotspot_count)),
+        ("Noise incidents", NOT_RUN if clusters is None else f"{clusters.noise_count:,} of {s.incident_count:,}"),
+        ("Noise share", NOT_RUN if s.noise_share is None else f"{s.noise_share:.1%}"),
+    ])
     st.caption(
         f"Bounding box (min lat, min lon, max lat, max lon): {', '.join(f'{v:.5f}' for v in s.bounding_box)} · "
         f"Mean centre (lat, lon): {s.mean_center[0]:.5f}, {s.mean_center[1]:.5f}"
@@ -481,7 +593,7 @@ def _download_buttons(paths: list[Path], key_prefix: str) -> None:
 
 
 def _render_history_page() -> None:
-    st.header("History & Reports")
+    _page_header("History & Reports")
     st.subheader("Saved runs")
     try:
         runs = list_runs(HISTORY_LIMIT, db_path=HISTORY_DB_PATH)
@@ -491,6 +603,10 @@ def _render_history_page() -> None:
     if runs == []:
         st.info("No runs saved yet. Run an analysis and use 'Save this run to history' on the Summary page.")
     elif runs:
+        kpi_strip([
+            ("Saved runs", f"{len(runs)}{'+' if len(runs) == HISTORY_LIMIT else ''}"),
+            ("Runs with reports", str(sum(1 for r in runs if r["report_paths"]))),
+        ])
         st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
         st.dataframe(pd.DataFrame([_history_row(r) for r in runs]), hide_index=True, width="stretch")
 
@@ -541,7 +657,7 @@ def _share(value: float | None) -> str:
 
 def render_data_page() -> None:
     """Load a CSV (sample or upload), validate it, and show the quality report."""
-    st.header("Data")
+    _page_header("Data")
     samples = list_sample_datasets()
     mode = st.radio("Source", ("Upload a CSV", "Sample dataset"), horizontal=True)
 
@@ -571,10 +687,11 @@ def render_data_page() -> None:
 
 def _render_validation(dataset: CleanDataset) -> None:
     report = dataset.report
-    total, accepted, rejected = st.columns(3)
-    total.metric("Rows in file", f"{report.total_rows:,}")
-    accepted.metric("Accepted", f"{report.valid_rows:,}")
-    rejected.metric("Rejected", f"{report.rejected_rows:,}")
+    kpi_strip([
+        ("Rows in file", f"{report.total_rows:,}"),
+        ("Accepted", f"{report.valid_rows:,}"),
+        ("Rejected", f"{report.rejected_rows:,}"),
+    ])
 
     if not report.is_usable:
         st.error(

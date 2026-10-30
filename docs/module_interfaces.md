@@ -362,6 +362,26 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 - **Font fallback:** Streamlit 1.66 keeps only the first font family, so the effective UI stack is Inter → Streamlit's bundled Source Sans → sans-serif. Plotly charts use the full `FONT_STACK`.
 - **Unchanged:** page code, widget labels and keys, and behaviour. `tests/test_ui_theme.py` checks the tokens, that the TOML agrees with the module, WCAG contrast, the template, and the palettes.
 
+## Stage 10B Phase 2 (application shell)
+- **Navigation (`app.py`):**
+  - `st.navigation(position="hidden")` with one `st.Page` per page, each calling `render_page(name)`.
+  - The sidebar shows the brand ("Hotspot Analytics" / "Spatial Incident Analysis"), then `st.page_link` items with Material icons.
+  - The current page's link is wrapped in `st.container(key=NAV_ACTIVE_KEY)`, and `ui_theme.SHELL_CSS` (static, built from tokens) gives it the teal accent with white text. This is the only custom CSS.
+  - The default page (Data) is served at `/`. Streamlit doesn't route `/data`; opening it shows "Page not found" and falls back to Data.
+- **`render_page(name)`** is unchanged as the entry point. It now:
+  - creates a sidebar status container first and fills it after the page runs;
+  - shows the file name (Markdown-escaped with `escape_markdown`), rows / accepted / rejected, the analysis status (`analysis_status`: Not run · Complete · Partial — DBSCAN/KDE/summary failed · Failed · Dataset unusable), and the saved run ID (first 8 characters).
+- **Page headers:** `_page_header` keeps the existing title text and adds a one-line description (`PAGE_INFO`).
+- **KPI strip:** `kpi_strip` (≤ 4 bordered `st.metric` cards per row, via `kpi_rows`) shows only values that already exist, and `NOT_RUN` when an analysis didn't produce a value. Existing labels and values are unchanged:
+  - **Data:** Rows in file, Accepted, Rejected.
+  - **Clusters:** Clusters, Candidate hotspots, Noise incidents, Analysis status.
+  - **Density:** Incidents used, Grid cells, Bandwidth, Analysis status.
+  - **Summary:** Rows in file, Accepted incidents, Rejected, Analysis status, Clusters, Candidate hotspots, Noise incidents, Noise share.
+  - **History:** Saved runs, Runs with reports.
+- **Sidebar:** analysis parameters are in a collapsed "Analysis parameters" expander. Display filters are in a separate "Display filters (display only)" expander on the Clusters page only. Widget keys are unchanged.
+- **Loading:** `st.spinner` messages wrap DBSCAN, KDE and the summary. With the small sample these finish in well under a second, so the spinner is rarely visible.
+- **Empty states:** same texts and message types, with Material icons added.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

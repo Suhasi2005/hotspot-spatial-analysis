@@ -30,6 +30,9 @@ headingFontSizes = ["28px", "28px", "20px", "16px"]
 headingFontWeights = [600, 600, 600, 600]
 metricValueFontSize = "28px"
 metricValueFontWeight = 600
+# Gap under the header in the main area (Phase 4.2; Streamlit default 6rem). Mirrors
+# ui_theme.MAIN_PADDING_TOP. The sidebar keeps its own default spacing.
+paddingTop = "2rem"
 
 # Status colours for success / warning / error / info messages.
 greenColor = "#2F855A"
@@ -46,3 +49,10 @@ backgroundColor = "#102233"
 textColor = "#E6EDF5"
 secondaryBackgroundColor = "#1B3349"
 borderColor = "#2C4862"
+# The sidebar inherits theme.paddingTop unless set here; 1rem keeps its pre-Phase-4.2
+# position (Streamlit's built-in sidebar gap). Mirrors ui_theme.SIDEBAR_PADDING_TOP.
+paddingTop = "1rem"
+
+# Phase 4.2: hide the developer toolbar (Deploy, rerun, clear cache) and menu items.
+[client]
+toolbarMode = "minimal"

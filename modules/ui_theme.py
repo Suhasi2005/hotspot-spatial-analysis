@@ -52,15 +52,66 @@ CAPTION_PX = 13                   # Streamlit captions are 0.875rem = 13.1px at 
 HEADING_WEIGHT = 600
 METRIC_VALUE_PX = 28
 
+# --- Surfaces, spacing and badges (Stage 10B Phase 4.2) ----------------------------------
+def _mix(colour: str, other: str, share: float) -> str:
+    """Hex colour that is `share` of `colour` and the rest `other` (sRGB channel mix)."""
+    a = [int(colour[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x * share + y * (1 - share)):02X}" for x, y in zip(a, b))
+
+
+SHADOW_CARD = "0 1px 2px rgba(16, 34, 51, 0.06), 0 1px 3px rgba(16, 34, 51, 0.08)"
+RADIUS_CARD_PX = 10
+SPACING_PX = (4, 8, 12, 16, 24, 32)
+SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG, SPACE_XL, SPACE_2XL = SPACING_PX
+KPI_LABEL_PX = 13
+KPI_LABEL_WEIGHT = 500
+BADGE_VALUE_PX = 15
+# Status badges: background = 12% tint of the status colour on white; text = the same
+# colour darkened to 70% so it stays >= 4.5:1 on the tint (the plain tokens do not).
+BADGE_TINT = 0.12
+BADGE_TEXT_SHADE = 0.70
+STATUS_COLOURS = {"success": SUCCESS, "warning": WARNING, "error": ERROR, "info": INFO}
+BADGE_BACKGROUND = {tone: _mix(colour, SURFACE, BADGE_TINT) for tone, colour in STATUS_COLOURS.items()}
+BADGE_TEXT = {tone: _mix(colour, "#000000", BADGE_TEXT_SHADE) for tone, colour in STATUS_COLOURS.items()}
+# Main-area gap under the header; mirrored by theme.paddingTop in .streamlit/config.toml
+# (Streamlit's default is 6rem).
+MAIN_PADDING_TOP = "2rem"
+# The sidebar would inherit MAIN_PADDING_TOP; this keeps its original position.
+SIDEBAR_PADDING_TOP = "1rem"
+
 # --- Application shell (Stage 10B Phase 2) ----------------------------------------------
 # Streamlit marks the current page link only through internal styling, so app.py wraps
 # that one link in st.container(key=NAV_ACTIVE_KEY); keyed containers get the stable
-# CSS class "st-key-<key>". This is the only custom CSS: static, built from the tokens
+# CSS class "st-key-<key>". All custom CSS lives in SHELL_CSS: static, built from the tokens
 # above, never from user data.
 NAV_ACTIVE_KEY = "nav_active"
+# KPI cards (Phase 4.2): dashboard.kpi_strip wraps each st.metric in a keyed container
+# whose key starts with KPI_KEY_PREFIX; status cards add "badge_<tone>_". Rules are
+# scoped to those keyed containers; inside them they use st.metric's data-testid
+# hooks for the label and value only.
+KPI_KEY_PREFIX = "kpi_"
+_KPI = f'[class*="st-key-{KPI_KEY_PREFIX}"]'
+_KPI_CSS = (
+    f"{_KPI} {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS_CARD_PX}px; "
+    f"box-shadow: {SHADOW_CARD}; padding: {SPACE_LG}px {SPACE_LG}px {SPACE_MD}px; min-height: 104px; "
+    f"justify-content: center; }}\n"
+    f'{_KPI} [data-testid="stMetricLabel"] p {{ font-size: {KPI_LABEL_PX}px; font-weight: {KPI_LABEL_WEIGHT}; '
+    f"color: {TEXT_SECONDARY}; }}\n"
+    f'{_KPI} [data-testid="stMetricValue"] {{ font-size: {METRIC_VALUE_PX}px; font-weight: {HEADING_WEIGHT}; '
+    f"color: {TEXT_PRIMARY}; line-height: 1.2; }}\n"
+    + "".join(
+        f'[class*="st-key-{KPI_KEY_PREFIX}badge_{tone}_"] [data-testid="stMetricValue"] {{ '
+        f"display: inline-block; width: auto; font-size: {BADGE_VALUE_PX}px; font-weight: {HEADING_WEIGHT}; "
+        f"background-color: {BADGE_BACKGROUND[tone]}; color: {BADGE_TEXT[tone]}; "
+        f"padding: {SPACE_XS}px {SPACE_MD}px; margin-top: {SPACE_XS}px; border-radius: 999px; }}\n"
+        for tone in STATUS_COLOURS
+    )
+)
 SHELL_CSS = (
     f".st-key-{NAV_ACTIVE_KEY} a {{ background-color: {ACCENT} !important; }}\n"
     f".st-key-{NAV_ACTIVE_KEY} a span, .st-key-{NAV_ACTIVE_KEY} a p {{ color: {SURFACE} !important; }}\n"
+    + _KPI_CSS
 )
 
 # --- Charts ----------------------------------------------------------------------------

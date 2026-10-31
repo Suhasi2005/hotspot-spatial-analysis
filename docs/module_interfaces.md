@@ -366,7 +366,7 @@ The signatures exist in code now. Functions marked *done* are implemented and te
 - **Navigation (`app.py`):**
   - `st.navigation(position="hidden")` with one `st.Page` per page, each calling `render_page(name)`.
   - The sidebar shows the brand ("Hotspot Analytics" / "Spatial Incident Analysis"), then `st.page_link` items with Material icons.
-  - The current page's link is wrapped in `st.container(key=NAV_ACTIVE_KEY)`, and `ui_theme.SHELL_CSS` (static, built from tokens) gives it the teal accent with white text. This is the only custom CSS.
+  - The current page's link is wrapped in `st.container(key=NAV_ACTIVE_KEY)`, and `ui_theme.SHELL_CSS` (static, built from tokens) gives it the teal accent with white text. Phase 4.2 adds static KPI-card rules to the same constant.
   - The default page (Data) is served at `/`. Streamlit doesn't route `/data`; opening it shows "Page not found" and falls back to Data.
 - **`render_page(name)`** is unchanged as the entry point. It now:
   - creates a sidebar status container first and fills it after the page runs;
@@ -393,6 +393,13 @@ Rendering only; layers, layer names, colours and data are unchanged.
 - Cluster and density maps: the layer control starts collapsed in the top-right (`LAYER_CONTROL_POSITION`) and expands on hover or tap; zoom is bottom-left (`ZOOM_CONTROL_POSITION`). The incident map has a single layer and no layer control.
 - `DENSITY_LEGEND_WIDTH_PX` is 480 (the caption still fits) so the legend fits the two-thirds map at 1280 px. On narrower maps (phone width), `_ResponsiveLegend` re-fits the legend's own D3 scale to the map width, keeping the colours, the 0–1 domain, the ticks and the font size. If the caption doesn't fit, it wraps onto two lines at the dash. It runs again when the map is resized; wider maps keep the 480 px legend unchanged (Phase 3.2).
 - Cluster-size chart: a two-line title, the legend below the plot and automargins, so nothing is cut off or overlapping at 390 px.
+
+## Stage 10B Phase 4.2 (design system and KPI cards)
+Display only. KPI labels and values, widget keys and sidebar labels are unchanged.
+- **Tokens (`ui_theme`):** `SHADOW_CARD`, `RADIUS_CARD_PX` (10), `SPACING_PX` (4, 8, 12, 16, 24, 32) with `SPACE_XS` to `SPACE_2XL`, `KPI_LABEL_PX`, `KPI_LABEL_WEIGHT`, and `BADGE_BACKGROUND` / `BADGE_TEXT` per tone. Backgrounds are 12% tints of the status colours; text is the status colour darkened to 70%, at least 4.5:1 on the tint.
+- **KPI cards:** `kpi_strip` still renders `st.metric`, each inside a keyed container (`kpi_key`). `SHELL_CSS` styles keys starting `kpi_` as white cards. Inside them it uses the metric's `data-testid` label and value hooks, because `st.metric` offers no other way to size the label or colour the value.
+- **Status badges:** `kpi_tone` maps Analysis status and Validation status to success, warning, error or info. The status text is always shown, so colour is never the only signal.
+- **Config:** `client.toolbarMode = "minimal"` hides the developer toolbar. `theme.paddingTop = "2rem"` reduces the main-area gap, and `theme.sidebar.paddingTop = "1rem"` stops the sidebar inheriting it, keeping the sidebar in its original position.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

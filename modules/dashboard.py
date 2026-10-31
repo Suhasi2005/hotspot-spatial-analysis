@@ -43,7 +43,7 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
-from modules.ui_theme import plotly_template
+from modules.ui_theme import KPI_KEY_PREFIX, plotly_template
 
 PAGES: tuple[str, ...] = ("Data", "Clusters (DBSCAN)", "Density (KDE)", "Summary", "History & Reports")
 ANALYSIS_PAGES: tuple[str, ...] = ("Clusters (DBSCAN)", "Density (KDE)", "Summary")
@@ -142,10 +142,15 @@ def kpi_strip(items: list[tuple[str, str]]) -> None:
 
     Values are shown exactly as given; callers pass existing values only and use
     NOT_RUN when an analysis has not produced one.
+
+    Each card is an st.metric inside a keyed container (see kpi_key) that
+    ui_theme.SHELL_CSS styles as a white card; status values become a coloured
+    badge whose text still states the status.
     """
     for row in kpi_rows(items):
         for column, (label, value) in zip(st.columns(KPI_PER_ROW), row):
-            column.metric(label, value, border=True)
+            with column.container(key=kpi_key(label, value)):
+                st.metric(label, value)
 
 
 def _render_dataset_status(box) -> None:
@@ -208,6 +213,32 @@ def category_values(series: pd.Series) -> pd.Series:
 def analysis_cache_key(config: AnalysisConfig) -> tuple:
     """Hashable key of every parameter that affects DBSCAN, KDE or the summary."""
     return tuple(sorted((k, repr(v)) for k, v in asdict(config).items()))
+
+
+STATUS_KPI_LABELS = ("Analysis status", "Validation status")
+
+
+def kpi_tone(label: str, value: str) -> str | None:
+    """Badge tone for a status KPI (success / warning / error / info); None for other KPIs.
+
+    Display only: the value text itself is unchanged and always shown.
+    """
+    if label not in STATUS_KPI_LABELS:
+        return None
+    if value in ("Complete", "Ready"):
+        return "success"
+    if value.startswith("Partial") or value == "Ready with rejections":
+        return "warning"
+    if value in ("Failed", "Unusable", "Dataset unusable"):
+        return "error"
+    return "info"                                                      # NOT_RUN and anything unexpected
+
+
+def kpi_key(label: str, value: str) -> str:
+    """Container key for one KPI card; status cards carry their badge tone for the CSS."""
+    slug = "".join(ch if ch.isalnum() else "_" for ch in label.lower())
+    tone = kpi_tone(label, value)
+    return f"{KPI_KEY_PREFIX}{f'badge_{tone}_' if tone else 'card_'}{slug}"
 
 
 def kpi_rows(items: list[tuple[str, str]], per_row: int = KPI_PER_ROW) -> list[list[tuple[str, str]]]:

@@ -45,6 +45,8 @@ from modules.map_visualization import (
 from modules.spatial_statistics import incidents_by_period
 from modules.ui_theme import (
     ACCENT,
+    EMPTY_STATE_PREFIX,
+    HISTORY_PANEL_PREFIX,
     KPI_KEY_PREFIX,
     SUMMARY_KPI_KEY,
     SUMMARY_PANEL_PREFIX,
@@ -78,6 +80,17 @@ MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Clusters and 
 SUMMARY_TABS = ("Method Comparison", "Distributions", "Notes & Limitations")
 SYNTHETIC_NOTICE = ("Synthetic demonstration data: every record is artificial. These results show how the "
                     "methods work and are not real-world incident statistics.")
+
+# --- tables, empty states and History (Stage 10B Phase 4.4) -------------------------------
+TABLE_SCROLL_HINT = "On narrow screens, scroll this table sideways to see every column."
+# Session-state key for {page name: st.Page}, set by app.py so pages can link to each other.
+PAGE_LINKS_KEY = "page_links"
+# The History frame keeps every column; these lists only choose what each table displays.
+# Run ID sits with the parameters so the results table fits a laptop without sideways scrolling.
+HISTORY_RESULT_COLUMNS = ("saved (UTC)", "source", "accepted / total rows", "status", "reports",
+                          "clusters", "candidate hotspots", "noise incidents")
+HISTORY_PARAMETER_COLUMNS = ("saved (UTC)", "run id", "eps_m", "min_samples", "min_incidents", "bandwidth_m",
+                             "grid_cell_m", "high_density_quantile")
 
 # --- application shell (Stage 10B Phase 2) ---------------------------------------------
 BRAND_NAME = "Hotspot Analytics"
@@ -125,11 +138,13 @@ def _render_page_body(name: str) -> None:
     _page_header(name)
     dataset = st.session_state.get("dataset")
     if dataset is None:
-        st.info("No dataset loaded. Load and validate a CSV on the Data page first.", icon=":material/upload_file:")
+        empty_state("no_dataset", ":material/upload_file:", "No dataset loaded yet",
+                    "No dataset loaded. Load and validate a CSV on the Data page first.", link=("Data", "Go to Data"))
         return
     if not dataset.report.is_usable:
-        st.warning("The loaded dataset is unusable (no accepted incidents), so no analysis runs. Fix it on the Data page.",
-                   icon=":material/report:")
+        empty_state("unusable_dataset", ":material/report:", "This dataset cannot be analysed",
+                    "The loaded dataset is unusable (no accepted incidents), so no analysis runs. Fix it on the Data page.",
+                    show=st.warning, link=("Data", "Go to Data"))
         return
     if config is None:
         st.error("Analysis parameters are invalid; fix them in the sidebar. No analysis was run.", icon=":material/tune:")
@@ -171,6 +186,28 @@ def kpi_grid(items: list[tuple[str, str]], key: str) -> None:
         for label, value in items:
             with st.container(key=kpi_key(label, value)):
                 st.metric(label, value)
+
+
+def column_label(name: str) -> str:
+    """Readable Title Case heading for a data column, e.g. incident_id -> Incident ID."""
+    return " ".join("ID" if word == "id" else word.capitalize() for word in str(name).replace("_", " ").split())
+
+
+def _page_link(page: str, label: str) -> None:
+    """Link to another page; skipped when no page objects are registered (pages run alone)."""
+    target = st.session_state.get(PAGE_LINKS_KEY, {}).get(page)
+    if target is not None:
+        st.page_link(target, label=label, icon=":material/arrow_forward:")
+
+
+def empty_state(key: str, icon: str, heading: str, message: str, show=st.info,
+                link: tuple[str, str] | None = None) -> None:
+    """Card for "nothing here yet": heading, the existing message, and an optional next step."""
+    with st.container(key=f"{EMPTY_STATE_PREFIX}{key}"):
+        st.markdown(f"#### {icon} {heading}")
+        show(message)
+        if link is not None:
+            _page_link(*link)
 
 
 def _render_dataset_status(box) -> None:
@@ -431,13 +468,14 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
             column_config={
                 "cluster": st.column_config.NumberColumn("Cluster", help="An identifier, not a rank", format="%d"),
                 "incidents": st.column_config.NumberColumn("Incidents", format="%d"),
-                "shown under filters": st.column_config.NumberColumn("Shown under filters", format="%d"),
-                "centroid lat": st.column_config.NumberColumn("Centroid lat", format="%.6f"),
-                "centroid lon": st.column_config.NumberColumn("Centroid lon", format="%.6f"),
+                "shown under filters": st.column_config.NumberColumn("Shown Under Filters", format="%d"),
+                "centroid lat": st.column_config.NumberColumn("Centroid Lat", format="%.6f"),
+                "centroid lon": st.column_config.NumberColumn("Centroid Lon", format="%.6f"),
                 "radius_m": st.column_config.NumberColumn("Radius (m)", format="%.1f"),
-                "candidate hotspot (size rule)": st.column_config.TextColumn("Candidate hotspot (size rule)"),
+                "candidate hotspot (size rule)": st.column_config.TextColumn("Candidate Hotspot (Size Rule)"),
             },
         )
+        st.caption(TABLE_SCROLL_HINT)
     with chart_tab:
         fig = go.Figure(
             [
@@ -552,7 +590,8 @@ def _render_density_page(results: dict[str, Any]) -> None:
                f"Threshold quantile {p['high_density_quantile']:g} · Kernel {p['kernel']} · "
                f"Threshold score {density.high_density_threshold:.4g}")
     with st.expander("All KDE parameters", icon=":material/table_rows:"):
-        st.dataframe(params_table, hide_index=True, width="stretch")
+        st.dataframe(params_table, hide_index=True, width="stretch",
+                     column_config={"parameter": "Parameter", "value": "Value"})
 
 
 # --- Summary page -----------------------------------------------------------------------
@@ -616,6 +655,8 @@ def _render_method_comparison(mc) -> None:
                 index=["DBSCAN clustered", "DBSCAN noise", "Total (eligible)"],
             ),
             width="stretch",
+            column_config={"_index": "DBSCAN Result", "KDE high density": "KDE High Density",
+                           "KDE not high": "KDE Not High", "Total (eligible)": "Total (Eligible)"},
         )
         st.caption(
             f"Eligible = inside the KDE grid extent ({mc.eligible_count:,} of {mc.total_incidents:,}); "
@@ -639,12 +680,13 @@ def _render_method_comparison(mc) -> None:
                     "cluster": st.column_config.NumberColumn("Cluster", help="An identifier, not a rank", format="%d"),
                     "incidents": st.column_config.NumberColumn("Incidents", format="%d"),
                     "eligible": st.column_config.NumberColumn("Eligible", format="%d"),
-                    "outside grid": st.column_config.NumberColumn("Outside grid", format="%d"),
-                    "at high density": st.column_config.NumberColumn("At high density", format="%d"),
-                    "share at high density": st.column_config.TextColumn("Share at high density"),
-                    "candidate hotspot (size rule)": st.column_config.TextColumn("Candidate hotspot (size rule)"),
+                    "outside grid": st.column_config.NumberColumn("Outside Grid", format="%d"),
+                    "at high density": st.column_config.NumberColumn("At High Density", format="%d"),
+                    "share at high density": st.column_config.TextColumn("Share at High Density", alignment="right"),
+                    "candidate hotspot (size rule)": st.column_config.TextColumn("Candidate Hotspot (Size Rule)"),
                 },
             )
+            st.caption(TABLE_SCROLL_HINT)
 
 
 def _render_distributions(dataset: CleanDataset, s) -> None:
@@ -755,14 +797,23 @@ def _render_history_page() -> None:
         st.error(f"Could not read the run history: {exc}")
         runs = None
     if runs == []:
-        st.info("No runs saved yet. Run an analysis and use 'Save this run to history' on the Summary page.")
+        empty_state("no_runs", ":material/history:", "No saved runs yet",
+                    "No runs saved yet. Run an analysis and use 'Save this run to history' on the Summary page.",
+                    link=("Summary", "Go to Summary"))
     elif runs:
         kpi_strip([
             ("Saved runs", f"{len(runs)}{'+' if len(runs) == HISTORY_LIMIT else ''}"),
             ("Runs with reports", str(sum(1 for r in runs if r["report_paths"]))),
         ])
-        st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
-        st.dataframe(pd.DataFrame([_history_row(r) for r in runs]), hide_index=True, width="stretch")
+        table = pd.DataFrame([_history_row(r) for r in runs])
+        with st.container(key=f"{HISTORY_PANEL_PREFIX}runs"):
+            st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
+            st.dataframe(table, hide_index=True, width="stretch", column_order=HISTORY_RESULT_COLUMNS,
+                         column_config=_history_column_config())
+            st.caption(TABLE_SCROLL_HINT)
+            with st.expander("Analysis parameters for each run", icon=":material/tune:"):
+                st.dataframe(table, hide_index=True, width="stretch", column_order=HISTORY_PARAMETER_COLUMNS,
+                             column_config=_history_column_config())
 
     st.subheader("Reports")
     st.caption(
@@ -770,20 +821,53 @@ def _render_history_page() -> None:
         "sessions cannot be regenerated, because the history stores parameters, not results; their reports "
         "can be downloaded here only if they were registered and the files still exist."
     )
-    st.warning(CSV_SAFETY_WARNING)
     with_reports = [r for r in runs or [] if r["report_paths"]]
     if not with_reports:
-        st.info("No reports registered yet.")
+        empty_state("no_reports", ":material/description:", "No reports yet",
+                    "No reports registered yet. Save a run on the Summary page, then choose Generate reports.",
+                    link=("Summary", "Go to Summary") if runs else None)
         return
-    chosen = st.selectbox("Run", [r["run_id"] for r in with_reports], key="history_report_run")
-    row = next(r for r in with_reports if r["run_id"] == chosen)
-    resolved = []
-    for stored in row["report_paths"]:
-        try:
-            resolved.append(resolve_report_path(stored, HISTORY_REPORTS_DIR))
-        except ValueError as exc:
-            st.error(f"Invalid stored report path: {exc}")
-    _download_buttons(resolved, "history")
+    labels = {r["run_id"]: _run_label(r) for r in with_reports}
+    with st.container(key=f"{HISTORY_PANEL_PREFIX}reports"):
+        st.warning(CSV_SAFETY_WARNING)
+        chosen = st.selectbox("Run", list(labels), format_func=labels.get, key="history_report_run")
+        row = next(r for r in with_reports if r["run_id"] == chosen)
+        resolved = []
+        for stored in row["report_paths"]:
+            try:
+                resolved.append(resolve_report_path(stored, HISTORY_REPORTS_DIR))
+            except ValueError as exc:
+                st.error(f"Invalid stored report path: {exc}")
+        with st.container(horizontal=True, wrap=True):
+            _download_buttons(resolved, "history")
+
+
+def _run_label(run: dict[str, Any]) -> str:
+    """Readable name for a saved run: saved time, source file and short run id."""
+    return f"{run['created_at'].replace('T', ' ')[:16]} UTC · {run['source_name']} · {run['run_id'][:8]}"
+
+
+def _history_column_config() -> dict[str, Any]:
+    """Readable headings for the History tables; counts are right-aligned, text left."""
+    text, number = st.column_config.TextColumn, st.column_config.NumberColumn
+    return {
+        "saved (UTC)": text("Saved (UTC)", width=140),
+        "run id": text("Run ID", width=90, help="Select the cell to read the full ID"),
+        "source": text("Source", width=130),
+        "accepted / total rows": text("Accepted / Total", width=110, alignment="right",
+                                      help="Accepted rows out of all rows in the file"),
+        "status": text("Status", width=90),
+        "reports": text("Reports", width=70),
+        "clusters": text("Clusters", width=70, alignment="right"),
+        "candidate hotspots": text("Candidate Hotspots", width=130, alignment="right"),
+        "noise incidents": text("Noise", width=60, alignment="right", help="Noise incidents"),
+        "eps_m": number("Eps (m)"),
+        "min_samples": number("Min Samples"),
+        "min_incidents": number("Min Incidents"),
+        "bandwidth_m": number("Bandwidth (m)"),
+        "grid_cell_m": number("Grid Cell (m)"),
+        "high_density_quantile": number("Quantile", help="KDE high-density quantile"),
+    }
 
 
 def _history_row(run: dict[str, Any]) -> dict[str, Any]:
@@ -884,15 +968,33 @@ def _render_validation(dataset: CleanDataset) -> None:
     with issues_tab:
         if report.issues:
             st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
-            st.dataframe(summarize_quality(report), hide_index=True, width="stretch")
+            issues = summarize_quality(report)
+            st.dataframe(issues, hide_index=True, width="stretch",
+                         column_config={column: column_label(column) for column in issues.columns})
         else:
             st.caption("No validation issues.")
     with preview_tab:
         if report.is_usable:
             st.caption(f"Accepted rows (first {min(PREVIEW_ROWS, report.valid_rows):,} of {report.valid_rows:,}).")
-            st.dataframe(dataset.frame.head(PREVIEW_ROWS), width="stretch")
+            preview = dataset.frame.head(PREVIEW_ROWS)
+            st.dataframe(preview, width="stretch", column_config=_preview_column_config(preview))
+            st.caption(TABLE_SCROLL_HINT)
         else:
             st.caption("No accepted rows to preview.")
+
+
+def _preview_column_config(frame: pd.DataFrame) -> dict[str, Any]:
+    """Readable headings; the index is the 0-based source row used by the validation messages."""
+    config: dict[str, Any] = {"_index": st.column_config.NumberColumn(
+        "Source Row", help="0-based data row in the file; matches the row numbers in Validation Issues", format="%d")}
+    for column in frame.columns:
+        config[column] = column_label(column)
+        if pd.api.types.is_datetime64_any_dtype(frame[column]):
+            dates = frame[column].dropna()
+            date_only = bool((dates == dates.dt.normalize()).all())
+            config[column] = st.column_config.DatetimeColumn(
+                column_label(column), format="YYYY-MM-DD" if date_only else "YYYY-MM-DD HH:mm:ss")
+    return config
 
 
 def _render_incident_map(dataset: CleanDataset) -> None:

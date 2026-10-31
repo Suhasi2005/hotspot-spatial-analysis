@@ -118,12 +118,20 @@ _KPI_CSS = (
 # and white panels. Both are keyed containers used on the Summary page only.
 SUMMARY_KPI_KEY = "summary_kpis"
 SUMMARY_PANEL_PREFIX = "summary_panel_"
+# Phase 4.4: History panels and empty-state cards share the same white panel style.
+HISTORY_PANEL_PREFIX = "history_panel_"
+EMPTY_STATE_PREFIX = "empty_state_"
+_EMPTY_LINK = f'[class*="st-key-{EMPTY_STATE_PREFIX}"] a'
 KPI_GRID_MIN_CARD_PX = 160
 _SUMMARY_CSS = (
     f".st-key-{SUMMARY_KPI_KEY} > * {{ flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
-    f'[class*="st-key-{SUMMARY_PANEL_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
+    f'[class*="st-key-{SUMMARY_PANEL_PREFIX}"], [class*="st-key-{HISTORY_PANEL_PREFIX}"], '
+    f'[class*="st-key-{EMPTY_STATE_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
     f"border-radius: {RADIUS_CARD_PX}px; box-shadow: {SHADOW_CARD}; padding: {SPACE_LG}px; }}\n"
+    f"{_EMPTY_LINK} {{ background-color: {ACCENT} !important; padding: {SPACE_XS}px {SPACE_MD}px; }}\n"
+    f"{_EMPTY_LINK}:hover {{ background-color: {ACCENT_HOVER} !important; }}\n"
+    f"{_EMPTY_LINK} span, {_EMPTY_LINK} p {{ color: {SURFACE} !important; }}\n"
 )
 SHELL_CSS = (
     f".st-key-{NAV_ACTIVE_KEY} a {{ background-color: {ACCENT} !important; }}\n"

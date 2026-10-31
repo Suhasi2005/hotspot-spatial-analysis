@@ -410,6 +410,13 @@ Layout and wording only. Analysis values, widget keys, report generation and the
 - **Charts:** `_summary_bar_chart` uses `ui_theme.bar_chart_layout` (shared template, two-line title, no legend) with the accent colour and value labels. It replaces the hard-coded bar colour. Bars keep the same data.
 - **Panels:** containers keyed `summary_panel_*` are styled by `SHELL_CSS`.
 
+## Stage 10B Phase 4.4 (tables, empty states, History)
+Display only. Stored runs, report files, sorting, widget keys and the data behind each table are unchanged.
+- **Tables:** headings are Title Case through `column_config`, or `column_label` for data columns. The underlying frames keep their original column names. `TABLE_SCROLL_HINT` appears under tables that can be wider than a phone.
+- **Data Preview:** the index stays visible as "Source Row", because it is the 0-based row number used by Validation Issues and by `source_row` in `incidents.csv`. Date columns show the date alone unless a value has a time.
+- **Empty states:** `empty_state` puts a heading, the existing message (same text prefix and message type) and an optional next step in a white card. Links use `st.page_link` with the `st.Page` objects that `app.py` stores under `PAGE_LINKS_KEY`; when a page runs alone, the link is skipped.
+- **History:** one frame feeds two views through `column_order`: results (`HISTORY_RESULT_COLUMNS`), and run ID with parameters in an expander (`HISTORY_PARAMETER_COLUMNS`). `CSV_SAFETY_WARNING` shows only when a run has reports. The run selector shows the saved time, file and short ID, and still returns the full run ID.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

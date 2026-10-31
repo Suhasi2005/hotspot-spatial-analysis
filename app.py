@@ -7,7 +7,7 @@ the page adds (dataset status, analysis parameters, display filters).
 
 import streamlit as st
 
-from modules.dashboard import BRAND_NAME, BRAND_TAGLINE, PAGE_INFO, PAGES, render_page
+from modules.dashboard import BRAND_NAME, BRAND_TAGLINE, PAGE_INFO, PAGE_LINKS_KEY, PAGES, render_page
 from modules.ui_theme import NAV_ACTIVE_KEY, SHELL_CSS
 
 
@@ -27,6 +27,7 @@ def main() -> None:
         for index, name in enumerate(PAGES)
     ]
     current = st.navigation(pages, position="hidden")
+    st.session_state[PAGE_LINKS_KEY] = dict(zip(PAGES, pages))   # for links inside pages
     st.html(f"<style>{SHELL_CSS}</style>")          # static styling only; no user data
     st.sidebar.markdown(f"### {BRAND_NAME}")
     st.sidebar.caption(BRAND_TAGLINE)

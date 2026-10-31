@@ -842,12 +842,16 @@ def render_data_page() -> None:
         except DataValidationError as exc:
             load_error = str(exc)
 
+    # Only a usable file may replace a usable dataset. An empty uploader says nothing about
+    # the user's intent: Streamlit forgets it on other pages and empties it while swapping files.
+    current = st.session_state.get(DATASET_KEY)
+    refused = None
+    if dataset is not None and not dataset.report.is_usable and current is not None and current.report.is_usable:
+        dataset, refused = None, dataset
     if dataset is not None:
         st.session_state[DATASET_KEY] = dataset
     else:
-        # Kept across pages and failed loads. An empty uploader says nothing about the user's
-        # intent: Streamlit forgets it on other pages and empties it while swapping files.
-        dataset = st.session_state.get(DATASET_KEY)
+        dataset = current
 
     if dataset is None:
         _render_upload_workspace(samples, load_error)
@@ -856,12 +860,23 @@ def render_data_page() -> None:
     _render_dataset_bar(dataset)
     if load_error is not None:
         st.error(f"This file cannot be used: {load_error} The current dataset is still loaded.")
-    with st.expander("Change dataset", expanded=load_error is not None or not dataset.report.is_usable,
-                     icon=":material/swap_horiz:"):
+    if refused is not None:
+        _render_refused_file(refused)
+    expanded = load_error is not None or refused is not None or not dataset.report.is_usable
+    with st.expander("Change dataset", expanded=expanded, icon=":material/swap_horiz:"):
         _source_controls(samples)
         if st.session_state.get(SOURCE_UPLOAD_KEY) is None:
             st.button("Remove dataset", key="remove_dataset", icon=":material/delete:", on_click=_remove_dataset)
     _render_validation(dataset)
+
+
+def _render_refused_file(refused: CleanDataset) -> None:
+    """A file with no usable rows, shown with its issues while the current dataset stays loaded."""
+    report = refused.report
+    st.error(f"{escape_markdown(refused.source_name)} has no valid rows, so it was not loaded "
+             f"({report.total_rows:,} of {report.total_rows:,} rows rejected). The current dataset is still loaded.")
+    with panel("refused_file"):
+        _render_issues(report)
 
 
 def _remove_dataset() -> None:
@@ -952,13 +967,7 @@ def _render_validation(dataset: CleanDataset) -> None:
         with map_tab:
             _render_incident_map(dataset)
         with issues_tab:
-            if report.issues:
-                st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
-                issues = summarize_quality(report)
-                st.dataframe(issues, hide_index=True, width="stretch",
-                             column_config={column: column_label(column) for column in issues.columns})
-            else:
-                st.caption("No validation issues.")
+            _render_issues(report)
         with preview_tab:
             if report.is_usable:
                 st.caption(f"Accepted rows (first {min(PREVIEW_ROWS, report.valid_rows):,} of {report.valid_rows:,}).")
@@ -967,6 +976,16 @@ def _render_validation(dataset: CleanDataset) -> None:
                 st.caption(TABLE_SCROLL_HINT)
             else:
                 st.caption("No accepted rows to preview.")
+
+
+def _render_issues(report) -> None:
+    if report.issues:
+        st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
+        issues = summarize_quality(report)
+        st.dataframe(issues, hide_index=True, width="stretch",
+                     column_config={column: column_label(column) for column in issues.columns})
+    else:
+        st.caption("No validation issues.")
 
 
 def _preview_column_config(frame: pd.DataFrame) -> dict[str, Any]:

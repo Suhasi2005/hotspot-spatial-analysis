@@ -171,3 +171,66 @@ def test_remove_dataset_also_works_from_sample_mode(tmp_path, monkeypatch):
     at.button(key="remove_dataset").click().run()
     assert not at.exception and dashboard.DATASET_KEY not in at.session_state
     assert at.radio(key=SOURCE_MODE_KEY).value == SOURCE_OPTIONS[0]
+
+
+# --- files with no usable rows (Stage 2.2) -------------------------------------------------------
+
+
+def _choose(at, tmp_path, monkeypatch, name):
+    monkeypatch.setattr(dashboard, "list_sample_datasets", lambda: [tmp_path / name])
+    at.radio(key=SOURCE_MODE_KEY).set_value(SOURCE_OPTIONS[1]).run()
+    assert not at.exception
+
+
+def test_a_file_with_no_usable_rows_does_not_replace_a_usable_dataset(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    _choose(at, tmp_path, monkeypatch, "none_usable.csv")
+    assert at.session_state[dashboard.DATASET_KEY] is dataset
+    assert r"valid\_full\.csv" in _text(at) and _metrics(at)["Accepted"] == "6"
+    assert _metrics(at)["Validation status"] == "Ready"
+    message = next(e.value for e in at.error if "has no valid rows" in e.value)
+    assert r"none\_usable\.csv" in message and "2 of 2 rows rejected" in message
+    assert "The current dataset is still loaded." in message
+
+
+def test_a_refused_file_shows_its_issue_details(tmp_path, monkeypatch):
+    at, _ = _retained(tmp_path, monkeypatch)
+    _choose(at, tmp_path, monkeypatch, "none_usable.csv")
+    issues = at.dataframe[0].value
+    assert issues["code"].tolist() == ["LAT_OUT_OF_RANGE"] and issues["affected_rows"].tolist() == [2]
+    assert next(e for e in at.main.expander if e.label == "Change dataset").proto.expanded is True
+
+
+def test_a_refused_file_is_not_remembered_after_leaving_the_page(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    _choose(at, tmp_path, monkeypatch, "none_usable.csv")
+    back = AppTest.from_string(SCRIPT, default_timeout=120)
+    back.session_state[dashboard.DATASET_KEY] = at.session_state[dashboard.DATASET_KEY]
+    back.run()
+    assert back.session_state[dashboard.DATASET_KEY] is dataset and not back.error
+    assert r"valid\_full\.csv" in _text(back)
+
+
+def test_a_valid_file_can_replace_after_a_refused_one(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    monkeypatch.setattr(dashboard, "list_sample_datasets", lambda: [tmp_path / "none_usable.csv", tmp_path / "required_only.csv"])
+    at.radio(key=SOURCE_MODE_KEY).set_value(SOURCE_OPTIONS[1]).run()
+    assert at.session_state[dashboard.DATASET_KEY] is dataset
+    at.selectbox(key=dashboard.SOURCE_SAMPLE_KEY).select_index(1).run()
+    assert at.session_state[dashboard.DATASET_KEY] is not dataset and r"required\_only\.csv" in _text(at)
+    assert not at.error
+
+
+def test_with_no_usable_dataset_an_unusable_file_still_opens(tmp_path, monkeypatch):
+    at = _load(tmp_path, monkeypatch, "none_usable.csv")
+    assert at.session_state[dashboard.DATASET_KEY].report.is_usable is False
+    assert _metrics(at)["Validation status"] == "Unusable"
+    assert any("No valid rows remain" in e.value for e in at.error)
+    assert not any("has no valid rows" in e.value for e in at.error)
+
+
+def test_a_usable_file_replaces_an_unusable_dataset(tmp_path, monkeypatch):
+    at, unusable = _retained(tmp_path, monkeypatch, "none_usable.csv")
+    _choose(at, tmp_path, monkeypatch, "valid_full.csv")
+    assert at.session_state[dashboard.DATASET_KEY] is not unusable
+    assert _metrics(at)["Validation status"] == "Ready"

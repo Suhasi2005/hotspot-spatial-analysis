@@ -391,7 +391,7 @@ Layout and wording only. DBSCAN, KDE, the summary, validation, parameters, map c
 ## Stage 10B responsive fix (charts and map controls)
 Rendering only; layers, layer names, colours and data are unchanged.
 - Cluster and density maps: the layer control starts collapsed in the top-right (`LAYER_CONTROL_POSITION`) and expands on hover or tap; zoom is bottom-left (`ZOOM_CONTROL_POSITION`). The incident map has a single layer and no layer control.
-- `DENSITY_LEGEND_WIDTH_PX` is 480 (the caption still fits) so the legend fits the two-thirds map at 1280 px. At phone width the legend is still wider than the map and its left end is cut off (open item).
+- `DENSITY_LEGEND_WIDTH_PX` is 480 (the caption still fits) so the legend fits the two-thirds map at 1280 px. On narrower maps (phone width), `_ResponsiveLegend` re-fits the legend's own D3 scale to the map width, keeping the colours, the 0–1 domain, the ticks and the font size. If the caption doesn't fit, it wraps onto two lines at the dash. It runs again when the map is resized; wider maps keep the 480 px legend unchanged (Phase 3.2).
 - Cluster-size chart: a two-line title, the legend below the plot and automargins, so nothing is cut off or overlapping at 390 px.
 
 ## Invariants every implementer must keep

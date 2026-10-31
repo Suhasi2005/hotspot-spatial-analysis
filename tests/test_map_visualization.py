@@ -475,3 +475,17 @@ def test_layer_controls_start_collapsed_and_avoid_the_legend():
         assert controls[0].options["collapsed"] is True and controls[0].options["position"] == "topright"
         assert '"zoomControl": false' in fmap.get_root().render() or "zoomControl: false" in fmap.get_root().render()
         assert "bottomleft" in fmap.get_root().render()
+
+
+def test_density_legend_fits_narrow_maps_without_changing_the_scale():
+    """Stage 10B Phase 3.2: the legend re-fits to the map width; colours and caption unchanged."""
+    values = np.arange(12, dtype="float64").reshape(3, 4)
+    fmap = build_density_map(_density([23.00, 23.01, 23.02], [72.50, 72.51, 72.52, 72.53], values, 6.0))
+    children = list(fmap._children.values())
+    names = [type(c).__name__ for c in children]
+    assert names.index("_ResponsiveLegend") > names.index("LinearColormap")   # script runs after the legend
+    legend = children[names.index("LinearColormap")]
+    assert legend.width == DENSITY_LEGEND_WIDTH_PX and legend.caption == DENSITY_LEGEND
+    html = fmap.get_root().render()
+    assert f"Math.min({DENSITY_LEGEND_WIDTH_PX}, map.getContainer().clientWidth - 20)" in html
+    assert 'map.on("resize", fit)' in html

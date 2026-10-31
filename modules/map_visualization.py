@@ -12,6 +12,8 @@ from typing import Any
 
 import branca.colormap as branca_cm
 import folium
+from branca.element import MacroElement
+from jinja2 import Template
 import numpy as np
 import pandas as pd
 from folium.raster_layers import ImageOverlay
@@ -326,7 +328,9 @@ def build_density_map(result: DensityResult) -> folium.Map:
         image=density_overlay_rgba(result, threshold_mask=True), bounds=bounds, origin="upper",
         mercator_project=False, pixelated=True, name=THRESHOLD_LAYER_NAME, overlay=True, control=True, show=False,
     ).add_to(fmap)
-    _density_colormap().add_to(fmap)
+    colormap = _density_colormap()
+    colormap.add_to(fmap)
+    _ResponsiveLegend(colormap).add_to(fmap)
     folium.LayerControl(collapsed=True, position=LAYER_CONTROL_POSITION).add_to(fmap)
     fmap.fit_bounds(bounds)
     return fmap
@@ -375,6 +379,57 @@ def _mercator_row_index(grid_lat: np.ndarray, south: float, north: float) -> np.
     lower = upper - 1
     choose_lower = (lat_centres - grid_lat[lower]) <= (grid_lat[upper] - lat_centres)
     return np.where(choose_lower, lower, upper)
+
+
+class _ResponsiveLegend(MacroElement):
+    """Fits the branca density legend to the map width (rendering only).
+
+    When the map is narrower than DENSITY_LEGEND_WIDTH_PX plus Leaflet's control
+    margins (phone width), the legend's own D3 scale is re-ranged to the
+    available width: same colours, domain 0-1, ticks and font size. If the
+    caption is then too long, it wraps onto two lines at the dash. Wider maps
+    keep the 480 px legend unchanged. Re-runs when the map is resized.
+    """
+
+    _template = Template("""
+{% macro script(this, kwargs) %}
+(function () {
+    var cm = {{ this.colormap.get_name() }};
+    var map = {{ this._parent.get_name() }};
+    var full = {{ this.colormap.caption|tojson }};
+    function fit() {
+        var width = Math.min({{ this.colormap.width }}, map.getContainer().clientWidth - 20);
+        var dom = cm.color.domain();
+        cm.x.range([0, width - 50]);
+        cm.g.selectAll("rect")
+            .attr("x", function (d, i) { return i ? cm.x(dom[i - 1]) : 0; })
+            .attr("width", function (d, i) {
+                var x0 = i ? cm.x(dom[i - 1]) : 0;
+                var x1 = i < dom.length ? cm.x(dom[i]) : cm.x.range()[1];
+                return Math.max(0, x1 - x0);
+            });
+        cm.g.call(cm.xAxis);
+        var caption = cm.g.select("text.caption").text(full);
+        var height = {{ this.colormap.height }};
+        var cut = full.indexOf(" — ");
+        if (cut > 0 && caption.node().getComputedTextLength() > width - 30) {
+            caption.text(null);
+            caption.append("tspan").attr("x", 0).text(full.slice(0, cut));
+            caption.append("tspan").attr("x", 0).attr("dy", "1.2em").text(full.slice(cut + 1));
+            height += 16;
+        }
+        cm.svg.attr("width", width).attr("height", height);
+    }
+    fit();
+    map.on("resize", fit);
+})();
+{% endmacro %}
+""")
+
+    def __init__(self, colormap: branca_cm.LinearColormap):
+        super().__init__()
+        self._name = "ResponsiveLegend"
+        self.colormap = colormap
 
 
 def _density_colormap() -> branca_cm.LinearColormap:

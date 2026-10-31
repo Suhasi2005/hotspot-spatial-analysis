@@ -47,8 +47,10 @@ from modules.ui_components import dataset_bar, empty_state, kpi_grid, kpi_strip,
 from modules.ui_theme import (
     ACCENT,
     CHART_SECONDARY,
+    CLUSTER_KPI_KEY,
     DATA_KPI_KEY,
     FILTERS_KEY,
+    MOBILE_ONLY_KEY,
     SUMMARY_KPI_KEY,
     SURFACE,
     TEXT_PRIMARY,
@@ -76,7 +78,9 @@ REPORT_MIME = {".csv": "text/csv", ".pdf": "application/pdf"}
 FILTERS_LABEL = "Display filters — visualization only; analysis results remain unchanged."
 KDE_DISCLAIMER = ("KDE values are relative density scores. They are not incident counts or "
                   "incidents per square kilometre.")
-MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Clusters and Density pages
+MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Density page
+CLUSTER_PANEL_RATIO = (5, 2)      # the map is the main element of the Clusters page
+CLUSTER_MAP_HEIGHT_PX = 620
 
 # --- Summary page (Stage 10B Phase 4.3) ---------------------------------------------------
 SUMMARY_TABS = ("Method Comparison", "Distributions", "Notes & Limitations")
@@ -234,6 +238,42 @@ def category_values(series: pd.Series) -> pd.Series:
     return series.astype(object).where(series.notna(), MISSING_LABEL).map(str)
 
 
+def cluster_view(
+    frame: pd.DataFrame,
+    severities: set[str] | None,
+    incident_types: set[str] | None,
+    show_noise: bool,
+    chosen: set[int],
+    candidates: set[int],
+    candidates_only: bool,
+) -> tuple[np.ndarray, set[int] | None]:
+    """Display mask plus the clusters to draw (None = all). Display-only.
+
+    `chosen` narrows the clusters without affecting noise, which keeps its own switch.
+    "Candidate hotspots only" keeps its existing meaning and shows no noise.
+    """
+    all_clusters = {int(v) for v in frame[CLUSTER_LABEL_COLUMN].unique() if v != NOISE_LABEL}
+    if candidates_only:
+        visible = chosen & candidates
+        return display_mask(frame, severities, incident_types, show_noise, visible), visible
+    mask = display_mask(frame, severities, incident_types, show_noise)
+    if chosen >= all_clusters:
+        return mask, None
+    labels = frame[CLUSTER_LABEL_COLUMN].to_numpy()
+    return mask & (np.isin(labels, list(chosen)) | (labels == NOISE_LABEL)), chosen
+
+
+def cluster_rows_html(clusters: ClusterResult) -> str:
+    """One row per cluster. Built from colours and numbers only, so no text needs escaping."""
+    rows = []
+    for c in clusters.clusters:
+        badge = "<em>Candidate hotspot</em>" if c.is_candidate_hotspot else ""
+        rows.append(f'<div class="hs-cluster"><i style="background: {cluster_color(c.cluster_label)}"></i>'
+                    f"<b>Cluster {c.cluster_label}</b><span>{c.incident_count:,} incidents · {c.radius_m:,.0f} m radius</span>"
+                    f"{badge}</div>")
+    return "".join(rows)
+
+
 def analysis_cache_key(config: AnalysisConfig) -> tuple:
     """Hashable key of every parameter that affects DBSCAN, KDE or the summary."""
     return tuple(sorted((k, repr(v)) for k, v in asdict(config).items()))
@@ -335,8 +375,8 @@ def _analysis_results(dataset: CleanDataset, config: AnalysisConfig) -> dict[str
 
 def _render_clusters_page(results: dict[str, Any]) -> None:
     if results["cluster_error"]:
-        kpi_strip([("Clusters", NOT_RUN), ("Candidate hotspots", NOT_RUN), ("Noise incidents", NOT_RUN),
-                   ("Noise share", NOT_RUN)])
+        kpi_grid([("Clusters", NOT_RUN), ("Candidate hotspots", NOT_RUN), ("Noise incidents", NOT_RUN),
+                  ("Noise share", NOT_RUN)], CLUSTER_KPI_KEY)
         st.error(f"DBSCAN failed: {results['cluster_error']}")
         return
     clusters: ClusterResult = results["clusters"]
@@ -345,12 +385,12 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
     summary = results["summary"]
     noise_share = NOT_RUN if summary is None or summary.noise_share is None else f"{summary.noise_share:.1%}"
 
-    kpi_strip([
+    kpi_grid([
         ("Clusters", str(len(clusters.clusters))),
         ("Candidate hotspots", str(len(candidates))),
         ("Noise incidents", f"{clusters.noise_count:,} of {len(frame):,}"),
         ("Noise share", noise_share),
-    ])
+    ], CLUSTER_KPI_KEY)
 
     filters = st.sidebar.container(key=FILTERS_KEY).expander(FILTERS_LABEL, expanded=True, icon=":material/filter_alt:")
     filters.caption("Change only what the cluster map and the 'shown' bars display. "
@@ -360,10 +400,14 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
     show_noise = filters.checkbox("Show noise points", value=True, key="f_show_noise")
     candidates_only = filters.checkbox("Candidate hotspots only", value=False, key="f_candidates_only")
 
-    mask = display_mask(frame, severities, types, show_noise, candidates if candidates_only else None)
+    map_col, info_col = st.columns(CLUSTER_PANEL_RATIO, gap="small")
+    with info_col:                                 # drawn first: its selector decides what the map shows
+        chosen = _render_cluster_panel(clusters, results["config"])
+    mask, visible = cluster_view(frame, severities, types, show_noise, chosen, candidates, candidates_only)
     shown = int(mask.sum())
-    map_col, info_col = st.columns(MAP_PANEL_RATIO, gap="medium")
     with map_col:
+        with st.container(key=MOBILE_ONLY_KEY):
+            st.caption("Severity, type and noise filters are in the side menu: open it with » at the top left.")
         if shown > MAX_MAP_POINTS:
             st.warning(
                 f"Only the first {MAX_MAP_POINTS:,} of {shown:,} selected incidents (in file order) are drawn as points. "
@@ -372,11 +416,9 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
         else:
             st.caption(f"Showing {shown:,} of {len(frame):,} accepted incidents under the current display filters.")
         st_folium(
-            build_cluster_map(clusters, MAX_MAP_POINTS, mask, candidates if candidates_only else None),
-            height=520, use_container_width=True, returned_objects=[], key="cluster_map",
+            build_cluster_map(clusters, MAX_MAP_POINTS, mask, visible),
+            height=CLUSTER_MAP_HEIGHT_PX, use_container_width=True, returned_objects=[], key="cluster_map",
         )
-    with info_col:
-        _cluster_explanation(results["config"])
 
     if not clusters.clusters:
         st.info("DBSCAN found no clusters with these parameters; every incident is noise.")
@@ -437,15 +479,32 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
         st.plotly_chart(fig, width="stretch", theme=None, key="chart_cluster_sizes")
 
 
+def _render_cluster_panel(clusters: ClusterResult, config: AnalysisConfig) -> set[int]:
+    """Cluster selector, per-cluster facts and method notes; returns the chosen cluster labels."""
+    labels = [c.cluster_label for c in clusters.clusters]
+    with panel("cluster_info"):
+        st.markdown("#### :material/hub: Clusters")
+        chosen = labels
+        if labels:
+            # The key includes the count so a new parameter result starts with every cluster shown.
+            chosen = st.pills("Show on map (display only)", labels, selection_mode="multi", default=labels,
+                              format_func=lambda label: f"Cluster {label}", key=f"f_clusters_{len(labels)}")
+            st.html(cluster_rows_html(clusters))
+        else:
+            st.caption("No clusters with these parameters.")
+        _cluster_explanation(config)
+    return set(chosen)
+
+
 def _cluster_explanation(config: AnalysisConfig) -> None:
-    """Legend and method notes beside the cluster map, using this run's parameters."""
-    with panel("cluster_legend"):
-        st.markdown("**How to read this map**")
+    """Legend and method notes for the cluster map, using this run's parameters."""
+    with st.expander("How to read this map", icon=":material/help:"):
         st.markdown(
             "- **Coloured points:** members of a DBSCAN cluster, one colour per cluster.\n"
-            "- **Small grey points:** noise, i.e. incidents that belong to no cluster.\n"
+            "- **Small light-grey points:** noise, i.e. incidents that belong to no cluster.\n"
             "- **Circles:** each cluster's centroid and radius_m.\n"
-            "- **Thick black outline:** a candidate hotspot."
+            "- **Labels:** each cluster's identifier and size.\n"
+            "- **Thick white outline:** a candidate hotspot."
         )
         st.markdown("**Candidate hotspot rule**")
         st.markdown(

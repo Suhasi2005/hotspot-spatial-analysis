@@ -164,7 +164,7 @@ def test_analytical_palettes_are_unchanged():
     assert map_visualization.CLUSTER_PALETTE == (
         "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
         "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#7f7f7f")
-    assert map_visualization.NOISE_COLOR == "#616161"
+    assert map_visualization.NOISE_COLOR == "#B7C6D6"          # approved dark-map change
     assert map_visualization.DENSITY_COLORS == ("#ffffb2", "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026")
     assert map_visualization.THRESHOLD_RGBA == (49, 54, 149, 110)
     assert map_visualization.POINT_STYLE["fill_color"] == "#2e86c1"

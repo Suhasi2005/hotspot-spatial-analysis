@@ -433,6 +433,14 @@ Layout only. Validation, messages, counts, Source Row, the three tabs and the ma
 - **Dataset retention (Stage 2.1):** the dataset stays in session state across pages, because Streamlit forgets the uploader when it leaves the page. It is replaced only by a successful load. A file that cannot be loaded shows its error, and a file with no usable rows shows its error and issues, and both leave a usable current dataset in place. With no usable dataset loaded, a file with no usable rows still opens as the unusable view. The uploader's ✕ clears only the file; the "Remove dataset" button, shown when the uploader is empty, removes the dataset. It lasts for the browser session, and nothing is written to disk.
 - **Source selection:** `_selected_source` reads the choice before drawing, so the page picks its layout first. The widgets now have keys (`data_source_mode`, `data_upload`, `data_sample`) because they move between layouts.
 
+## Stage 3 Clusters page
+Display only. DBSCAN, labels, candidate rules, coordinates, validation and reports are unchanged.
+- **`map_theme.py`:** `DarkMapStyle` applies the dark styling from inside the map's iframe, and `MapLegend` adds a static legend control. It imports nothing from the app.
+- **Basemap:** the existing OpenStreetMap tiles, darkened with a CSS filter on the tile pane only, so no API key, service or dependency is added. CARTO's dark tiles are not used because they now require a key.
+- **`build_cluster_map`:** uses the dark style, light noise points (`NOISE_COLOR`), a white candidate outline and stronger circle and point fills. It adds a "Cluster labels" layer with a chip at each drawn centroid, and a legend counting exactly what is drawn. The initial view leaves room at the top so the legend covers no incident; panning can still move points under it. The incident and density maps are unchanged.
+- **Page:** a KPI row, the map beside a cluster panel (`CLUSTER_PANEL_RATIO`), then the summaries. The panel has a display-only cluster selector, one row per cluster, and the method notes in an expander.
+- **`cluster_view`:** combines the display filters with the selector. The selector narrows clusters and leaves noise to its own switch; "Candidate hotspots only" keeps its meaning.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

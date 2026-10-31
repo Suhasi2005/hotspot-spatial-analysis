@@ -128,12 +128,15 @@ _KPI_CSS = (
 # across on desktop and two on phones.
 SUMMARY_KPI_KEY = "summary_kpis"
 DATA_KPI_KEY = "data_kpis"
+CLUSTER_KPI_KEY = "cluster_kpis"
+MOBILE_ONLY_KEY = "mobile_only"
 PANEL_PREFIX = "panel_"
 EMPTY_STATE_PREFIX = "empty_state_"
 _EMPTY_LINK = f'[class*="st-key-{EMPTY_STATE_PREFIX}"] a'
 KPI_GRID_MIN_CARD_PX = 160
 _SUMMARY_CSS = (
-    f".st-key-{SUMMARY_KPI_KEY} > *, .st-key-{DATA_KPI_KEY} > * {{ flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
+    f".st-key-{SUMMARY_KPI_KEY} > *, .st-key-{DATA_KPI_KEY} > *, .st-key-{CLUSTER_KPI_KEY} > * {{ "
+    f"flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
     f'[class*="st-key-{PANEL_PREFIX}"], '
     f'[class*="st-key-{EMPTY_STATE_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
@@ -154,6 +157,16 @@ _DATA_CSS = (
     f"background-color: {SECONDARY_BACKGROUND}; border: 1px dashed {ACCENT}; border-radius: {RADIUS_CARD_PX}px; }}\n"
     f".st-key-{PANEL_PREFIX}dataset_bar {{ padding: {SPACE_SM}px {SPACE_LG}px; }}\n"
 )
+# Clusters page: one row per cluster in the information panel.
+_CLUSTER_ROW = f".st-key-{PANEL_PREFIX}cluster_info .hs-cluster"
+_CLUSTERS_CSS = (
+    f"{_CLUSTER_ROW} {{ display: flex; flex-wrap: wrap; align-items: center; gap: {SPACE_XS}px {SPACE_SM}px; "
+    f"padding: {SPACE_SM}px 0; border-top: 1px solid {BORDER}; color: {TEXT_SECONDARY}; font-size: {CAPTION_PX}px; }}\n"
+    f"{_CLUSTER_ROW} b {{ color: {TEXT_PRIMARY}; font-weight: {HEADING_WEIGHT}; }}\n"
+    f"{_CLUSTER_ROW} i {{ width: 10px; height: 10px; border-radius: 50%; }}\n"
+    f"{_CLUSTER_ROW} em {{ font-style: normal; color: {ACCENT}; border: 1px solid {ACCENT}; border-radius: {RADIUS_CARD_PX}px; "
+    f"padding: 0 {SPACE_SM}px; }}\n"
+)
 # Phone page bar: five equal tabs, icon above label, so every page shows without scrolling.
 _MOBILE_NAV = f".st-key-{MOBILE_NAV_KEY}"
 _MOBILE_ACTIVE = f".st-key-{MOBILE_NAV_ACTIVE_KEY}"
@@ -171,6 +184,7 @@ _NAV_CSS = (
     f"padding: {SPACE_XS}px 2px; }}\n"
     f"{_MOBILE_NAV} a p {{ font-size: 11px; line-height: 1.2; white-space: nowrap; }}\n"
     f"@media (min-width: {MOBILE_BREAKPOINT_PX}px) {{ {_MOBILE_NAV} {{ display: none; }} }}\n"
+    f"@media (min-width: {MOBILE_BREAKPOINT_PX}px) {{ .st-key-{MOBILE_ONLY_KEY} {{ display: none; }} }}\n"
     # Multiselect chips use the primary colour; Streamlit's white text on it is only 2.4:1.
     f'.st-key-{FILTERS_KEY} [data-testid="stMultiSelectTagsContainer"] span {{ '
     f"color: {ON_ACCENT} !important; }}\n"
@@ -180,6 +194,7 @@ SHELL_CSS = (
     + _KPI_CSS
     + _SUMMARY_CSS
     + _DATA_CSS
+    + _CLUSTERS_CSS
 )
 
 # --- Charts ----------------------------------------------------------------------------

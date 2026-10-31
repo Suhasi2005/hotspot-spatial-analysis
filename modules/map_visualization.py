@@ -16,6 +16,7 @@ from branca.element import MacroElement
 from jinja2 import Template
 import numpy as np
 import pandas as pd
+from folium.features import DivIcon
 from folium.raster_layers import ImageOverlay
 
 from modules.contracts import (
@@ -26,6 +27,7 @@ from modules.contracts import (
     ClusterResult,
     DensityResult,
 )
+from modules.map_theme import CHIP_CLASS, DarkMapStyle, MapLegend
 # Reuse the Stage 6 validators instead of duplicating them (no change to that module).
 from modules.spatial_statistics import _check_cluster_result, _check_density
 
@@ -41,10 +43,17 @@ CLUSTER_PALETTE: tuple[str, ...] = (
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
     "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#7f7f7f",
 )
-NOISE_COLOR = "#616161"   # dark enough to stay visible on the grey OpenStreetMap basemap
+NOISE_COLOR = "#B7C6D6"   # light enough to stay visible on the dark basemap
 NOISE_STYLE = {"radius": 4, "color": NOISE_COLOR, "weight": 1, "fill": True, "fill_color": NOISE_COLOR, "fill_opacity": 0.8}
 CLUSTER_POINT_RADIUS = 5
-CANDIDATE_OUTLINE_COLOR = "#000000"
+CLUSTER_POINT_OPACITY = 0.9
+CANDIDATE_OUTLINE_COLOR = "#FFFFFF"
+CLUSTER_LABEL_LAYER = "Cluster labels"
+LEGEND_MAX_CLUSTERS = 8
+# Top of the initial view kept clear so the legend covers no incident: space per legend row
+# plus the panel's margins. Rendering only; it changes the starting view, not the data.
+LEGEND_ROW_PX = 18
+LEGEND_FRAME_PX = 40
 CANDIDATE_TOOLTIP = "Candidate hotspot — size rule only (not statistical significance)"
 
 # --- density map -----------------------------------------------------------------
@@ -190,7 +199,7 @@ def build_cluster_map(
     point_mask: np.ndarray | None = None,
     cluster_labels: set[int] | None = None,
 ) -> folium.Map:
-    """DBSCAN map: points coloured by cluster, noise grey, every cluster's circle.
+    """DBSCAN map on the dark basemap: points coloured by cluster, noise light grey, every cluster's circle.
 
     - Points: at most `max_points` markers (cap applied before markers are
       built, after the optional positional `point_mask`). Cluster members use
@@ -198,7 +207,9 @@ def build_cluster_map(
     - Circles: one per cluster in `result.clusters` (or the subset in
       `cluster_labels`), centred at the reported centroid with the reported
       radius_m in metres — drawn regardless of the point cap. Candidate
-      hotspots get a thick black outline and CANDIDATE_TOOLTIP.
+      hotspots get a thick white outline and CANDIDATE_TOOLTIP.
+    - Labels: a chip at each drawn cluster's centroid with its label and size, because
+      a small cluster's circle is hard to see at city zoom. A legend lists what is drawn.
     - The view fits all cluster circles and drawn points. Nothing is recomputed:
       centroids, radii and flags come from the DBSCAN summaries.
     Raises AnalysisError for an empty or inconsistent result.
@@ -229,7 +240,7 @@ def build_cluster_map(
             weight=4 if c.is_candidate_hotspot else 1,
             fill=True,
             fill_color=color,
-            fill_opacity=0.15,
+            fill_opacity=0.25,
             tooltip=folium.Tooltip(html.escape(tooltip)),
         ).add_to(circles)
     circles.add_to(fmap)
@@ -241,7 +252,8 @@ def build_cluster_map(
             style = NOISE_STYLE
         else:
             color = cluster_color(label)
-            style = {**POINT_STYLE, "radius": CLUSTER_POINT_RADIUS, "color": color, "fill_color": color}
+            style = {**POINT_STYLE, "radius": CLUSTER_POINT_RADIUS, "color": color, "fill_color": color,
+                     "fill_opacity": CLUSTER_POINT_OPACITY}
         folium.CircleMarker(
             location=[rec["lat"], rec["lon"]],
             tooltip=folium.Tooltip(rec["tooltip"]),
@@ -249,10 +261,41 @@ def build_cluster_map(
             **style,
         ).add_to(points)
     points.add_to(fmap)
+
+    labels = folium.FeatureGroup(name=CLUSTER_LABEL_LAYER)
+    for c in summaries:
+        chip = (f'<div class="{CHIP_CLASS}" style="border-color: {cluster_color(c.cluster_label)}">'
+                f"Cluster {c.cluster_label} · {c.incident_count}</div>")
+        folium.Marker([c.centroid_lat, c.centroid_lon], icon=DivIcon(html=chip, icon_size=(0, 0)), interactive=False).add_to(labels)
+    labels.add_to(fmap)
+
+    legend = _cluster_legend(records, summaries)
+    DarkMapStyle().add_to(fmap)
+    MapLegend(legend).add_to(fmap)
     folium.LayerControl(collapsed=True, position=LAYER_CONTROL_POSITION).add_to(fmap)
     if (south, west) != (north, east):
-        fmap.fit_bounds([[south, west], [north, east]], padding=(20, 20))
+        legend_rows = legend.count("<br>") + 2           # title, first row, then one per break
+        fmap.fit_bounds([[south, west], [north, east]], padding_top_left=(20, LEGEND_FRAME_PX + LEGEND_ROW_PX * legend_rows),
+                        padding_bottom_right=(20, 20))
     return fmap
+
+
+def _cluster_legend(records: list[dict[str, Any]], summaries: list[Any]) -> str:
+    """Legend for exactly what is drawn. Built from numbers and fixed text only."""
+    drawn: dict[int, int] = {}
+    for rec in records:
+        drawn[rec["cluster_label"]] = drawn.get(rec["cluster_label"], 0) + 1
+    rows = []
+    for c in summaries[:LEGEND_MAX_CLUSTERS]:
+        rows.append(f'<i style="background: {cluster_color(c.cluster_label)}"></i>Cluster {c.cluster_label}: '
+                    f"{drawn.get(c.cluster_label, 0):,} shown")
+    if len(summaries) > LEGEND_MAX_CLUSTERS:
+        rows.append(f"+ {len(summaries) - LEGEND_MAX_CLUSTERS:,} more clusters")
+    if drawn.get(NOISE_LABEL):
+        rows.append(f'<i style="background: {NOISE_COLOR}"></i>Noise: {drawn[NOISE_LABEL]:,} shown')
+    if any(c.is_candidate_hotspot for c in summaries):
+        rows.append(f'<i style="border: 2px solid {CANDIDATE_OUTLINE_COLOR}"></i>Candidate hotspot (size rule)')
+    return "<b>On this map</b>" + "<br>".join(rows)
 
 
 def density_overlay_bounds(result: DensityResult) -> list[list[float]]:

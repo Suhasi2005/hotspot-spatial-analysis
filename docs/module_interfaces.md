@@ -401,6 +401,15 @@ Display only. KPI labels and values, widget keys and sidebar labels are unchange
 - **Status badges:** `kpi_tone` maps Analysis status and Validation status to success, warning, error or info. The status text is always shown, so colour is never the only signal. Long badge text wraps onto two lines inside the card, within the 104 px height, and card content is top-aligned so labels line up across a row.
 - **Config:** `client.toolbarMode = "minimal"` hides the developer toolbar. `theme.paddingTop = "2rem"` reduces the main-area gap, and `theme.sidebar.paddingTop = "1rem"` stops the sidebar inheriting it, keeping the sidebar in its original position.
 
+## Stage 10B Phase 4.3 (Summary page)
+Layout and wording only. Analysis values, widget keys, report generation and the other pages are unchanged.
+- **Always visible:** the scope caption, then an "Overview" with the KPIs, the bounding box and mean centre, and a white panel holding "Save to history" and "Reports". `save_run` and `generate_reports` are now primary buttons.
+- **Tabs (`SUMMARY_TABS`):** Method Comparison (both tables and the eligibility caption), Distributions (severity and type charts side by side, stacked on phones, then the date chart) and Notes & Limitations.
+- **Synthetic notice:** `SYNTHETIC_NOTICE` appears when `is_synthetic_source` finds "synthetic" in the file name, which `data/sample/README.md` requires for synthetic files.
+- **KPIs:** `kpi_grid` is `kpi_strip`'s wrapping form: four across on desktop, two on phones. It is used on this page only.
+- **Charts:** `_summary_bar_chart` uses `ui_theme.bar_chart_layout` (shared template, two-line title, no legend) with the accent colour and value labels. It replaces the hard-coded bar colour. Bars keep the same data.
+- **Panels:** containers keyed `summary_panel_*` are styled by `SHELL_CSS`.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

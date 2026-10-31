@@ -43,7 +43,14 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
-from modules.ui_theme import KPI_KEY_PREFIX, plotly_template
+from modules.ui_theme import (
+    ACCENT,
+    KPI_KEY_PREFIX,
+    SUMMARY_KPI_KEY,
+    SUMMARY_PANEL_PREFIX,
+    bar_chart_layout,
+    plotly_template,
+)
 
 PAGES: tuple[str, ...] = ("Data", "Clusters (DBSCAN)", "Density (KDE)", "Summary", "History & Reports")
 ANALYSIS_PAGES: tuple[str, ...] = ("Clusters (DBSCAN)", "Density (KDE)", "Summary")
@@ -66,6 +73,11 @@ FILTERS_LABEL = "Display filters — visualization only; analysis results remain
 KDE_DISCLAIMER = ("KDE values are relative density scores. They are not incident counts or "
                   "incidents per square kilometre.")
 MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Clusters and Density pages
+
+# --- Summary page (Stage 10B Phase 4.3) ---------------------------------------------------
+SUMMARY_TABS = ("Method Comparison", "Distributions", "Notes & Limitations")
+SYNTHETIC_NOTICE = ("Synthetic demonstration data: every record is artificial. These results show how the "
+                    "methods work and are not real-world incident statistics.")
 
 # --- application shell (Stage 10B Phase 2) ---------------------------------------------
 BRAND_NAME = "Hotspot Analytics"
@@ -150,6 +162,14 @@ def kpi_strip(items: list[tuple[str, str]]) -> None:
     for row in kpi_rows(items):
         for column, (label, value) in zip(st.columns(KPI_PER_ROW), row):
             with column.container(key=kpi_key(label, value)):
+                st.metric(label, value)
+
+
+def kpi_grid(items: list[tuple[str, str]], key: str) -> None:
+    """KPI cards in a wrapping row: same cards as kpi_strip, but two across on phones."""
+    with st.container(horizontal=True, wrap=True, key=key):
+        for label, value in items:
+            with st.container(key=kpi_key(label, value)):
                 st.metric(label, value)
 
 
@@ -239,6 +259,11 @@ def kpi_key(label: str, value: str) -> str:
     slug = "".join(ch if ch.isalnum() else "_" for ch in label.lower())
     tone = kpi_tone(label, value)
     return f"{KPI_KEY_PREFIX}{f'badge_{tone}_' if tone else 'card_'}{slug}"
+
+
+def is_synthetic_source(name: str) -> bool:
+    """True for files named as synthetic (data/sample/README.md requires it in the file name)."""
+    return "synthetic" in name.lower()
 
 
 def kpi_rows(items: list[tuple[str, str]], per_row: int = KPI_PER_ROW) -> list[list[tuple[str, str]]]:
@@ -535,6 +560,8 @@ def _render_density_page(results: dict[str, Any]) -> None:
 
 def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None:
     st.caption("Descriptive summary of all accepted incidents. Display filters on the Clusters page do not apply here.")
+    if is_synthetic_source(dataset.source_name):
+        st.info(SYNTHETIC_NOTICE, icon=":material/science:")
     for key, name in (("cluster_error", "DBSCAN"), ("density_error", "KDE")):
         if results[key]:
             st.warning(f"{name} did not run: {results[key]}")
@@ -544,7 +571,8 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
     s = results["summary"]
     report = dataset.report
     clusters = results["clusters"]
-    kpi_strip([
+    st.subheader("Overview")
+    kpi_grid([
         ("Rows in file", f"{report.total_rows:,}"),
         ("Accepted incidents", f"{s.incident_count:,}"),
         ("Rejected", f"{report.rejected_rows:,}"),
@@ -553,17 +581,31 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
         ("Candidate hotspots", NOT_RUN if s.candidate_hotspot_count is None else str(s.candidate_hotspot_count)),
         ("Noise incidents", NOT_RUN if clusters is None else f"{clusters.noise_count:,} of {s.incident_count:,}"),
         ("Noise share", NOT_RUN if s.noise_share is None else f"{s.noise_share:.1%}"),
-    ])
+    ], SUMMARY_KPI_KEY)
     st.caption(
         f"Bounding box (min lat, min lon, max lat, max lon): {', '.join(f'{v:.5f}' for v in s.bounding_box)} · "
         f"Mean centre (lat, lon): {s.mean_center[0]:.5f}, {s.mean_center[1]:.5f}"
     )
+    with st.container(key=f"{SUMMARY_PANEL_PREFIX}save"):
+        _render_save_section(dataset, results)
 
-    st.subheader("DBSCAN vs KDE (descriptive comparison)")
+    comparison_tab, distributions_tab, notes_tab = st.tabs(SUMMARY_TABS)
     mc = s.method_comparison
-    if mc is None:
-        st.info("Not available: the comparison needs both DBSCAN and KDE results.")
-    else:
+    with comparison_tab:
+        _render_method_comparison(mc)
+    with distributions_tab:
+        _render_distributions(dataset, s)
+    with notes_tab, st.container(key=f"{SUMMARY_PANEL_PREFIX}notes"):
+        st.subheader("Notes and caveats")
+        st.markdown("\n".join(f"- {n}" for n in s.notes + (mc.notes if mc else [])))
+
+
+def _render_method_comparison(mc) -> None:
+    with st.container(key=f"{SUMMARY_PANEL_PREFIX}comparison"):
+        st.subheader("DBSCAN vs KDE (descriptive comparison)")
+        if mc is None:
+            st.info("Not available: the comparison needs both DBSCAN and KDE results.")
+            return
         st.dataframe(
             pd.DataFrame(
                 {
@@ -593,25 +635,35 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
                     ]
                 ),
                 hide_index=True, width="stretch",
+                column_config={
+                    "cluster": st.column_config.NumberColumn("Cluster", help="An identifier, not a rank", format="%d"),
+                    "incidents": st.column_config.NumberColumn("Incidents", format="%d"),
+                    "eligible": st.column_config.NumberColumn("Eligible", format="%d"),
+                    "outside grid": st.column_config.NumberColumn("Outside grid", format="%d"),
+                    "at high density": st.column_config.NumberColumn("At high density", format="%d"),
+                    "share at high density": st.column_config.TextColumn("Share at high density"),
+                    "candidate hotspot (size rule)": st.column_config.TextColumn("Candidate hotspot (size rule)"),
+                },
             )
 
+
+def _render_distributions(dataset: CleanDataset, s) -> None:
     st.subheader("Incidents by category and date")
-    for column, title in (("severity", "Severity"), ("incident_type", "Incident type")):
-        counts = s.by_category.get(column)
-        if counts:
-            fig = go.Figure(go.Bar(x=list(counts), y=list(counts.values()), marker_color="#2e86c1"))
-            fig.update_layout(title=f"Incidents by {title.lower()} (all accepted incidents)",
-                              xaxis_title=title, yaxis_title="Incidents")
-            st.plotly_chart(fig, width="stretch", key=f"chart_{column}")
+    categories = [(column, title) for column, title in (("severity", "Severity"), ("incident_type", "Incident type"))
+                  if s.by_category.get(column)]
+    if categories:
+        for slot, (column, title) in zip(st.columns(len(categories), gap="small"), categories):
+            counts = s.by_category[column]
+            with slot:
+                _summary_bar_chart(list(counts), list(counts.values()), f"Incidents by {title.lower()}",
+                                   "All accepted incidents", title, column)
     if not s.by_category:
         st.caption("No severity or incident_type column in this dataset.")
     timeline = incidents_by_period(dataset)
     if timeline["column_present"] and not timeline["counts"].empty:
         counts = timeline["counts"]
-        fig = go.Figure(go.Bar(x=counts["period_start"], y=counts["incident_count"], marker_color="#2e86c1"))
-        fig.update_layout(title=f"Incidents per {timeline['period']} (all accepted incidents with a valid date)",
-                          xaxis_title=timeline["period"].capitalize(), yaxis_title="Incidents")
-        st.plotly_chart(fig, width="stretch", key="chart_dates")
+        _summary_bar_chart(counts["period_start"], counts["incident_count"], f"Incidents per {timeline['period']}",
+                           "All accepted incidents with a valid date", timeline["period"].capitalize(), "dates")
         if timeline["missing_dates"]:
             st.caption(f"{timeline['missing_dates']:,} incident(s) have no valid date and are not in this chart.")
     elif timeline["column_present"]:
@@ -619,10 +671,14 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
     else:
         st.caption("No incident_date column in this dataset.")
 
-    st.subheader("Notes and caveats")
-    st.markdown("\n".join(f"- {n}" for n in s.notes + (mc.notes if mc else [])))
 
-    _render_save_section(dataset, results)
+def _summary_bar_chart(x, y, title: str, subtitle: str, xaxis_title: str, name: str) -> None:
+    """One count chart in a white panel; values come straight from the summary."""
+    fig = go.Figure(go.Bar(x=x, y=y, marker_color=ACCENT, text=y, textposition="outside", cliponaxis=False))
+    fig.update_layout(**bar_chart_layout(title, subtitle, xaxis_title))
+    with st.container(key=f"{SUMMARY_PANEL_PREFIX}chart_{name}"):
+        # theme=None: Streamlit's chart theme would replace the template's white background.
+        st.plotly_chart(fig, width="stretch", theme=None, key=f"chart_{name}")
 
 
 # --- history (Stage 8) ---------------------------------------------------------------------
@@ -642,7 +698,7 @@ def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None
     if results.get("saved_run_id"):
         st.success(f"This analysis is saved in the history as run {results['saved_run_id']}.")
     else:
-        if not st.button("Save this run to history", key="save_run"):
+        if not st.button("Save this run to history", key="save_run", type="primary"):
             return
         try:
             run = record_run(dataset, results["config"], results["clusters"], results["density"],
@@ -665,7 +721,7 @@ def _render_report_section(results: dict[str, Any]) -> None:
     st.warning(CSV_SAFETY_WARNING)
     paths = results.get("report_paths")
     if paths is None:
-        if not st.button("Generate reports", key="generate_reports"):
+        if not st.button("Generate reports", key="generate_reports", type="primary"):
             st.caption("Writes incidents.csv, clusters.csv and report.pdf once for this saved run.")
             return
         try:

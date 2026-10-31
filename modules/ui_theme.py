@@ -114,10 +114,22 @@ _KPI_CSS = (
         for tone in STATUS_COLOURS
     )
 )
+# Summary page (Phase 4.3): a wrapping KPI grid (four across on desktop, two on phones)
+# and white panels. Both are keyed containers used on the Summary page only.
+SUMMARY_KPI_KEY = "summary_kpis"
+SUMMARY_PANEL_PREFIX = "summary_panel_"
+KPI_GRID_MIN_CARD_PX = 160
+_SUMMARY_CSS = (
+    f".st-key-{SUMMARY_KPI_KEY} > * {{ flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
+    f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
+    f'[class*="st-key-{SUMMARY_PANEL_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
+    f"border-radius: {RADIUS_CARD_PX}px; box-shadow: {SHADOW_CARD}; padding: {SPACE_LG}px; }}\n"
+)
 SHELL_CSS = (
     f".st-key-{NAV_ACTIVE_KEY} a {{ background-color: {ACCENT} !important; }}\n"
     f".st-key-{NAV_ACTIVE_KEY} a span, .st-key-{NAV_ACTIVE_KEY} a p {{ color: {SURFACE} !important; }}\n"
     + _KPI_CSS
+    + _SUMMARY_CSS
 )
 
 # --- Charts ----------------------------------------------------------------------------
@@ -149,3 +161,27 @@ def plotly_template() -> go.layout.Template:
         "hoverlabel": {"bgcolor": SURFACE, "bordercolor": BORDER, "font": {"family": FONT_STACK, "color": TEXT_PRIMARY}},
         "title": {"font": {"size": CARD_HEADING_PX, "color": TEXT_PRIMARY}, "x": 0, "xanchor": "left"},
     })
+
+
+def bar_chart_layout(title: str, subtitle: str, xaxis_title: str) -> dict:
+    """Layout for a single-series count chart: template, two-line title, no legend.
+
+    The title sits on two short lines so it fits narrow charts. Pair it with
+    `text=` values and `cliponaxis=False` on the bar trace; `margin.t` leaves room
+    for the labels above the tallest bar.
+    """
+    return {
+        "template": plotly_template(),
+        "title": {"text": f"{title}<br><sup>{subtitle}</sup>", "x": 0, "xref": "paper", "xanchor": "left",
+                  "y": 0.96, "yanchor": "top"},
+        # Invisible outside ticks push the labels clear of the y-axis "0" on narrow charts.
+        "xaxis": {"title": {"text": xaxis_title}, "ticks": "outside", "ticklen": 6, "tickcolor": SURFACE},
+        "yaxis_title": "Incidents",
+        "showlegend": False,
+        "bargap": 0.35,
+        "height": CHART_HEIGHT_PX + 40,
+        "margin": {"l": 48, "r": 16, "t": 84, "b": 56},
+        # Set here as well: Streamlit does not apply the template's paper colour.
+        "paper_bgcolor": SURFACE,
+        "plot_bgcolor": SURFACE,
+    }

@@ -67,6 +67,8 @@ SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG, SPACE_XL, SPACE_2XL = SPACING_PX
 KPI_LABEL_PX = 13
 KPI_LABEL_WEIGHT = 500
 BADGE_VALUE_PX = 15
+BADGE_RADIUS_PX = 13              # full pill on one line (26 px tall); stays tidy when text wraps
+KPI_CARD_MIN_HEIGHT_PX = 104
 # Status badges: background = 12% tint of the status colour on white; text = the same
 # colour darkened to 70% so it stays >= 4.5:1 on the tint (the plain tokens do not).
 BADGE_TINT = 0.12
@@ -94,17 +96,21 @@ KPI_KEY_PREFIX = "kpi_"
 _KPI = f'[class*="st-key-{KPI_KEY_PREFIX}"]'
 _KPI_CSS = (
     f"{_KPI} {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS_CARD_PX}px; "
-    f"box-shadow: {SHADOW_CARD}; padding: {SPACE_LG}px {SPACE_LG}px {SPACE_MD}px; min-height: 104px; "
-    f"justify-content: center; }}\n"
+    f"box-shadow: {SHADOW_CARD}; padding: {SPACE_XL}px {SPACE_LG}px {SPACE_XS}px; "
+    f"min-height: {KPI_CARD_MIN_HEIGHT_PX}px; justify-content: flex-start; }}\n"
     f'{_KPI} [data-testid="stMetricLabel"] p {{ font-size: {KPI_LABEL_PX}px; font-weight: {KPI_LABEL_WEIGHT}; '
     f"color: {TEXT_SECONDARY}; }}\n"
     f'{_KPI} [data-testid="stMetricValue"] {{ font-size: {METRIC_VALUE_PX}px; font-weight: {HEADING_WEIGHT}; '
     f"color: {TEXT_PRIMARY}; line-height: 1.2; }}\n"
+    f'[class*="st-key-{KPI_KEY_PREFIX}badge_"] [data-testid="stMetricValue"], '
+    f'[class*="st-key-{KPI_KEY_PREFIX}badge_"] [data-testid="stMetricValue"] * {{ '
+    f"max-width: 100%; box-sizing: border-box; white-space: normal; overflow: visible; text-overflow: clip; "
+    f"overflow-wrap: break-word; }}\n"
     + "".join(
         f'[class*="st-key-{KPI_KEY_PREFIX}badge_{tone}_"] [data-testid="stMetricValue"] {{ '
         f"display: inline-block; width: auto; font-size: {BADGE_VALUE_PX}px; font-weight: {HEADING_WEIGHT}; "
         f"background-color: {BADGE_BACKGROUND[tone]}; color: {BADGE_TEXT[tone]}; "
-        f"padding: {SPACE_XS}px {SPACE_MD}px; margin-top: {SPACE_XS}px; border-radius: 999px; }}\n"
+        f"padding: {SPACE_XS}px {SPACE_MD}px; margin-top: {SPACE_XS}px; border-radius: {BADGE_RADIUS_PX}px; }}\n"
         for tone in STATUS_COLOURS
     )
 )

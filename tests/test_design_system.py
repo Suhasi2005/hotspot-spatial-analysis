@@ -117,3 +117,13 @@ def test_kpi_values_and_labels_unchanged_in_the_app(tmp_path, monkeypatch):
     assert {m.label: m.value for m in at.metric} == {
         "Rows in file": "19", "Accepted incidents": "19", "Rejected": "0", "Analysis status": "Complete",
         "Clusters": "2", "Candidate hotspots": "1", "Noise incidents": "1 of 19", "Noise share": "5.3%"}
+
+
+def test_status_badges_wrap_inside_cards_and_cards_top_align():
+    """Long badge text wraps within the card; labels share one offset; 104 px card height kept."""
+    css = ui_theme.SHELL_CSS
+    assert ui_theme.KPI_CARD_MIN_HEIGHT_PX == 104 and "min-height: 104px" in css
+    assert "justify-content: flex-start" in css and "justify-content: center" not in css
+    assert "white-space: normal" in css and "max-width: 100%" in css and "overflow-wrap: break-word" in css
+    assert ui_theme.BADGE_RADIUS_PX == 13 and "border-radius: 13px" in css and "999px" not in css
+    assert f"font-size: {ui_theme.BADGE_VALUE_PX}px" in css and ui_theme.BADGE_VALUE_PX == 15

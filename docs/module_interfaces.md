@@ -426,6 +426,12 @@ Display only. Analysis, validation, storage, reports, widget keys and page layou
 - **Charts:** Plotly charts use `theme=None` so the dark template applies. The candidate-hotspot outline in the cluster-size chart is now white, because black does not show on dark.
 - **Maps:** unchanged in this stage. They keep their light tiles and colours until Stages 3 and 4.
 
+## Stage 2 Data page
+Layout only. Validation, messages, counts, Source Row, the three tabs and the map rendering are unchanged.
+- **Before a dataset loads:** `_render_upload_workspace` shows the source controls with a prominent drop area, beside the accepted format taken from `REQUIRED_COLUMNS` and `OPTIONAL_COLUMNS`. A file that cannot be loaded shows its error here.
+- **After loading:** `dataset_bar` (file name, counts, status badge), a "Change dataset" expander holding the same controls, the KPI cards, the message, then the tabs in a panel. The expander opens by itself for an unusable dataset.
+- **Source selection:** `_selected_source` reads the choice before drawing, so the page picks its layout first. The widgets now have keys (`data_source_mode`, `data_upload`, `data_sample`) because they move between layouts.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

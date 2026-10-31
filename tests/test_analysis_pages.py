@@ -19,7 +19,8 @@ from modules.data_validator import validate_and_clean
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = f"import sys\nsys.path.insert(0, {str(ROOT)!r})\nfrom modules.dashboard import render_page\nrender_page(PAGE)\n"
 VALIDATION_SCRIPT = (f"import sys\nsys.path.insert(0, {str(ROOT)!r})\nimport streamlit as st\n"
-                     "from modules.dashboard import _render_validation\n_render_validation(st.session_state['dataset'])\n")
+                     "from modules.dashboard import _render_dataset_bar, _render_validation\n"
+                     "_render_dataset_bar(st.session_state['dataset'])\n_render_validation(st.session_state['dataset'])\n")
 
 
 @pytest.fixture(autouse=True)
@@ -73,7 +74,7 @@ def test_validation_summary_tabs_and_success():
     assert _metrics(at) == {"Rows in file": "19", "Accepted": "19", "Rejected": "0", "Validation status": "Ready"}
     assert [t.label for t in at.tabs] == ["Incident Map", "Validation Issues (0)", "Data Preview"]
     assert any("All rows passed validation." in s.value and "ready for analysis" in s.value for s in at.success)
-    assert any("synthetic\\_pages\\.csv" in c.value for c in at.caption)     # file name, escaped
+    assert any("synthetic\\_pages\\.csv" in m.value for m in at.markdown)    # file name, escaped
 
 
 def test_validation_with_rejected_rows_shows_warning_and_issues():

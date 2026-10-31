@@ -23,6 +23,7 @@ from modules.ui_theme import (
 
 KPI_PER_ROW = 4
 STATUS_KPI_LABELS = ("Analysis status", "Validation status")
+BADGE_COLOURS = {"success": "green", "warning": "orange", "error": "red", "info": "blue"}   # st.badge names
 # Session-state key for {page name: st.Page}, set by app.py so pages can link to each other.
 PAGE_LINKS_KEY = "page_links"
 
@@ -76,6 +77,17 @@ def page_link(page: str, label: str) -> None:
 def panel(name: str):
     """Elevated card used for any grouped content; `name` must be unique on the page."""
     return st.container(key=f"{PANEL_PREFIX}{name}")
+
+
+def dataset_bar(name: str, summary: str, status: str) -> None:
+    """Compact one-line dataset identity: file name, row counts and a validation badge.
+
+    `name` must already be Markdown-escaped; the status text is always shown.
+    """
+    with panel("dataset_bar"), st.container(horizontal=True, vertical_alignment="center"):
+        st.markdown(f":material/description: **{name}**", width="content")
+        st.caption(summary, width="content")
+        st.badge(status, color=BADGE_COLOURS[kpi_tone("Validation status", status)])
 
 
 def empty_state(key: str, icon: str, heading: str, message: str, show=st.info,

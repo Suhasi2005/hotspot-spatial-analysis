@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
 
-from config.settings import DB_PATH, DEFAULT_ANALYSIS_CONFIG, REPORTS_DIR, AnalysisConfig, CandidateHotspotCriteria, DBSCANParams, KDEParams
+from config.settings import DB_PATH, DEFAULT_ANALYSIS_CONFIG, OPTIONAL_COLUMNS, REPORTS_DIR, REQUIRED_COLUMNS, AnalysisConfig, CandidateHotspotCriteria, DBSCANParams, KDEParams
 from modules.app_controller import (
     cluster_dataset,
     estimate_density,
@@ -43,10 +43,11 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
-from modules.ui_components import empty_state, kpi_grid, kpi_strip, page_header, panel
+from modules.ui_components import dataset_bar, empty_state, kpi_grid, kpi_strip, page_header, panel
 from modules.ui_theme import (
     ACCENT,
     CHART_SECONDARY,
+    DATA_KPI_KEY,
     FILTERS_KEY,
     SUMMARY_KPI_KEY,
     SURFACE,
@@ -81,6 +82,15 @@ MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Clusters and 
 SUMMARY_TABS = ("Method Comparison", "Distributions", "Notes & Limitations")
 SYNTHETIC_NOTICE = ("Synthetic demonstration data: every record is artificial. These results show how the "
                     "methods work and are not real-world incident statistics.")
+
+# --- Data page (redesign Stage 2) -----------------------------------------------------------
+SOURCE_OPTIONS = ("Upload a CSV", "Sample dataset")
+# The uploader and selector are rendered in different places (the workspace, or the
+# "Change dataset" expander), so they need stable keys to keep their value.
+SOURCE_MODE_KEY = "data_source_mode"
+SOURCE_UPLOAD_KEY = "data_upload"
+SOURCE_SAMPLE_KEY = "data_sample"
+INCIDENT_MAP_HEIGHT_PX = 560
 
 # --- tables, empty states and History (Stage 10B Phase 4.4) -------------------------------
 TABLE_SCROLL_HINT = "On narrow screens, scroll this table sideways to see every column."
@@ -823,34 +833,67 @@ def render_data_page() -> None:
     """Load a CSV (sample or upload), validate it, and show the quality report."""
     _page_header("Data")
     samples = list_sample_datasets()
-    with panel("data_source"):
-        st.markdown("**Data source**")
-        st.caption("Upload a CSV with incident_id, latitude and longitude columns (WGS84 decimal degrees); "
-                   "severity, incident_type and incident_date are optional. Or choose a bundled sample dataset.")
-        mode = st.radio("Source", ("Upload a CSV", "Sample dataset"), horizontal=True)
+    source = _selected_source(samples)
+    dataset, load_error = None, None
+    if source is not None:
+        try:
+            dataset = load_and_validate(source)
+        except DataValidationError as exc:
+            load_error = str(exc)
 
-        source = None
-        if mode == "Sample dataset":
-            if not samples:
-                st.info("No sample datasets in data/sample yet.")
-            else:
-                source = st.selectbox("Sample file", samples, format_func=lambda p: p.name)
-        else:
-            source = st.file_uploader("CSV file", type=["csv"])
-
-    if source is None:
+    if dataset is None:
         st.session_state.pop("dataset", None)
-        return
-
-    try:
-        dataset = load_and_validate(source)
-    except DataValidationError as exc:
-        st.session_state.pop("dataset", None)
-        st.error(f"This file cannot be used: {exc}")
+        _render_upload_workspace(samples, load_error)
         return
 
     st.session_state["dataset"] = dataset
+    _render_dataset_bar(dataset)
+    with st.expander("Change dataset", expanded=not dataset.report.is_usable, icon=":material/swap_horiz:"):
+        _source_controls(samples)
     _render_validation(dataset)
+
+
+def _selected_source(samples: list[Path]):
+    """The chosen file, read before drawing so the page can pick its layout first."""
+    if st.session_state.get(SOURCE_MODE_KEY, SOURCE_OPTIONS[0]) == SOURCE_OPTIONS[0]:
+        return st.session_state.get(SOURCE_UPLOAD_KEY)
+    return st.session_state.get(SOURCE_SAMPLE_KEY, samples[0] if samples else None)
+
+
+def _source_controls(samples: list[Path]) -> None:
+    mode = st.radio("Source", SOURCE_OPTIONS, horizontal=True, key=SOURCE_MODE_KEY)
+    if mode == SOURCE_OPTIONS[0]:
+        st.file_uploader("CSV file", type=["csv"], key=SOURCE_UPLOAD_KEY)
+    elif samples:
+        st.selectbox("Sample file", samples, format_func=lambda p: p.name, key=SOURCE_SAMPLE_KEY)
+    else:
+        st.info("No sample datasets in data/sample yet.")
+
+
+def _render_upload_workspace(samples: list[Path], load_error: str | None) -> None:
+    """The page before a dataset is loaded: a large drop area beside the accepted format."""
+    upload_column, format_column = st.columns((3, 2), gap="small")
+    with upload_column, panel("data_source"):
+        st.markdown("#### :material/upload_file: Load incident data")
+        st.caption("Upload a CSV of point incidents, or start with the bundled sample dataset.")
+        _source_controls(samples)
+        if load_error is not None:
+            st.error(f"This file cannot be used: {load_error}")
+    with format_column, panel("data_format"):
+        st.markdown("#### :material/table_view: Accepted CSV format")
+        st.markdown(
+            f"- **Required columns:** {', '.join(f'`{c}`' for c in REQUIRED_COLUMNS)}\n"
+            f"- **Optional columns:** {', '.join(f'`{c}`' for c in OPTIONAL_COLUMNS)}\n"
+            "- **Coordinates:** WGS84 decimal degrees\n"
+            "- **Extra columns** are kept, and rows that fail validation are reported"
+        )
+
+
+def _render_dataset_bar(dataset: CleanDataset) -> None:
+    report = dataset.report
+    dataset_bar(escape_markdown(dataset.source_name),
+                f"{report.total_rows:,} rows · {report.valid_rows:,} accepted · {report.rejected_rows:,} rejected",
+                validation_status(report))
 
 
 def validation_status(report) -> str:
@@ -863,13 +906,12 @@ def validation_status(report) -> str:
 def _render_validation(dataset: CleanDataset) -> None:
     report = dataset.report
     st.subheader("Validation summary")
-    st.caption(f"File: {escape_markdown(dataset.source_name)}")
-    kpi_strip([
+    kpi_grid([
         ("Rows in file", f"{report.total_rows:,}"),
         ("Accepted", f"{report.valid_rows:,}"),
         ("Rejected", f"{report.rejected_rows:,}"),
         ("Validation status", validation_status(report)),
-    ])
+    ], DATA_KPI_KEY)
 
     if not report.is_usable:
         st.error(
@@ -887,26 +929,27 @@ def _render_validation(dataset: CleanDataset) -> None:
     extra = ", ".join(report.extra_columns_preserved) or "none"
     st.caption(f"Optional columns present: {present}. Extra columns preserved: {extra}.")
 
-    map_tab, issues_tab, preview_tab = st.tabs(
-        ["Incident Map", f"Validation Issues ({len(report.issues):,})", "Data Preview"])
-    with map_tab:
-        _render_incident_map(dataset)
-    with issues_tab:
-        if report.issues:
-            st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
-            issues = summarize_quality(report)
-            st.dataframe(issues, hide_index=True, width="stretch",
-                         column_config={column: column_label(column) for column in issues.columns})
-        else:
-            st.caption("No validation issues.")
-    with preview_tab:
-        if report.is_usable:
-            st.caption(f"Accepted rows (first {min(PREVIEW_ROWS, report.valid_rows):,} of {report.valid_rows:,}).")
-            preview = dataset.frame.head(PREVIEW_ROWS)
-            st.dataframe(preview, width="stretch", column_config=_preview_column_config(preview))
-            st.caption(TABLE_SCROLL_HINT)
-        else:
-            st.caption("No accepted rows to preview.")
+    with panel("data_workspace"):
+        map_tab, issues_tab, preview_tab = st.tabs(
+            ["Incident Map", f"Validation Issues ({len(report.issues):,})", "Data Preview"])
+        with map_tab:
+            _render_incident_map(dataset)
+        with issues_tab:
+            if report.issues:
+                st.caption("Row numbers are 0-based data rows (row 0 = first line after the header).")
+                issues = summarize_quality(report)
+                st.dataframe(issues, hide_index=True, width="stretch",
+                             column_config={column: column_label(column) for column in issues.columns})
+            else:
+                st.caption("No validation issues.")
+        with preview_tab:
+            if report.is_usable:
+                st.caption(f"Accepted rows (first {min(PREVIEW_ROWS, report.valid_rows):,} of {report.valid_rows:,}).")
+                preview = dataset.frame.head(PREVIEW_ROWS)
+                st.dataframe(preview, width="stretch", column_config=_preview_column_config(preview))
+                st.caption(TABLE_SCROLL_HINT)
+            else:
+                st.caption("No accepted rows to preview.")
 
 
 def _preview_column_config(frame: pd.DataFrame) -> dict[str, Any]:
@@ -938,4 +981,4 @@ def _render_incident_map(dataset: CleanDataset) -> None:
         )
     else:
         st.caption(f"{accepted:,} accepted incident(s). Click a point for details.")
-    st_folium(build_incident_map(dataset), height=480, use_container_width=True, returned_objects=[], key="incident_map")
+    st_folium(build_incident_map(dataset), height=INCIDENT_MAP_HEIGHT_PX, use_container_width=True, returned_objects=[], key="incident_map")

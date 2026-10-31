@@ -127,12 +127,13 @@ _KPI_CSS = (
 # Panels and empty-state cards share one style. The Summary page's KPI grid wraps four
 # across on desktop and two on phones.
 SUMMARY_KPI_KEY = "summary_kpis"
+DATA_KPI_KEY = "data_kpis"
 PANEL_PREFIX = "panel_"
 EMPTY_STATE_PREFIX = "empty_state_"
 _EMPTY_LINK = f'[class*="st-key-{EMPTY_STATE_PREFIX}"] a'
 KPI_GRID_MIN_CARD_PX = 160
 _SUMMARY_CSS = (
-    f".st-key-{SUMMARY_KPI_KEY} > * {{ flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
+    f".st-key-{SUMMARY_KPI_KEY} > *, .st-key-{DATA_KPI_KEY} > * {{ flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
     f'[class*="st-key-{PANEL_PREFIX}"], '
     f'[class*="st-key-{EMPTY_STATE_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
@@ -145,6 +146,13 @@ _SUMMARY_CSS = (
     f'[class*="st-key-{PANEL_PREFIX}"] [data-testid="stBaseButton-primary"]:hover {{ '
     f"background-color: {ACCENT_HOVER}; border-color: {ACCENT_HOVER}; }}\n"
     f'[class*="st-key-{PANEL_PREFIX}"] [data-testid="stBaseButton-primary"] p {{ color: {ON_ACCENT}; }}\n'
+)
+# Data page: a prominent drop area, and a slimmer panel for the one-line dataset bar.
+_DATA_CSS = (
+    f'.st-key-{PANEL_PREFIX}data_source [data-testid="stFileUploaderDropzone"] {{ min-height: 120px; display: flex; '
+    f"flex-direction: column; align-items: center; justify-content: center; gap: {SPACE_SM}px; "
+    f"background-color: {SECONDARY_BACKGROUND}; border: 1px dashed {ACCENT}; border-radius: {RADIUS_CARD_PX}px; }}\n"
+    f".st-key-{PANEL_PREFIX}dataset_bar {{ padding: {SPACE_SM}px {SPACE_LG}px; }}\n"
 )
 # Phone page bar: five equal tabs, icon above label, so every page shows without scrolling.
 _MOBILE_NAV = f".st-key-{MOBILE_NAV_KEY}"
@@ -171,6 +179,7 @@ SHELL_CSS = (
     _NAV_CSS
     + _KPI_CSS
     + _SUMMARY_CSS
+    + _DATA_CSS
 )
 
 # --- Charts ----------------------------------------------------------------------------

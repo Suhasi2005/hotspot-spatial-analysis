@@ -16,14 +16,13 @@ from modules.dashboard import (
     BRAND_TAGLINE,
     CACHE_KEY,
     FILTERS_LABEL,
-    KPI_PER_ROW,
     NOT_RUN,
     PAGE_INFO,
     PAGES,
     analysis_status,
     escape_markdown,
-    kpi_rows,
 )
+from modules.ui_components import KPI_PER_ROW, kpi_rows
 from modules.data_validator import validate_and_clean
 
 ROOT = Path(__file__).resolve().parent.parent

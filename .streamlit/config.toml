@@ -1,4 +1,4 @@
-# Stage 10B Phase 1 design system (native Streamlit theme; no custom CSS).
+# Dark geospatial design system (native Streamlit theme; ui_theme.SHELL_CSS adds the rest).
 # Values mirror modules/ui_theme.py; tests/test_ui_theme.py checks they agree.
 # The Inter font loads from Google Fonts (internet is already needed for map
 # tiles). Observed in Streamlit 1.66: only the first family is used and
@@ -7,26 +7,26 @@
 # system-ui entries below record the intended stack; Plotly charts honour it.
 
 [theme]
-base = "light"
-primaryColor = "#0E6E8C"
-backgroundColor = "#F6F7F9"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#1A2433"
-linkColor = "#0E6E8C"
-borderColor = "#E2E6EC"
-dataframeBorderColor = "#E2E6EC"
-dataframeHeaderBackgroundColor = "#F6F7F9"
-dataframeHeaderTextColor = "#5A6677"
+base = "dark"
+primaryColor = "#08B8D4"
+backgroundColor = "#071321"
+secondaryBackgroundColor = "#102438"
+textColor = "#EAF2FA"
+linkColor = "#08B8D4"
+borderColor = "#2A4A66"
+dataframeBorderColor = "#1E3A52"
+dataframeHeaderBackgroundColor = "#0D1F30"
+dataframeHeaderTextColor = "#9BB0C5"
 showWidgetBorder = true
 showSidebarBorder = false
-baseRadius = "6px"
-buttonRadius = "6px"
+baseRadius = "8px"
+buttonRadius = "8px"
 
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap, Segoe UI, system-ui, sans-serif"
 headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap, Segoe UI, system-ui, sans-serif"
-baseFontSize = 15
+baseFontSize = 14
 # h1 and h2 = page headings (pages use st.header today), h3 = sections, h4 = cards.
-headingFontSizes = ["28px", "28px", "20px", "16px"]
+headingFontSizes = ["26px", "26px", "18px", "14px"]
 headingFontWeights = [600, 600, 600, 600]
 metricValueFontSize = "28px"
 metricValueFontWeight = 600
@@ -35,20 +35,20 @@ metricValueFontWeight = 600
 paddingTop = "2rem"
 
 # Status colours for success / warning / error / info messages.
-greenColor = "#2F855A"
-yellowColor = "#B7791F"
-orangeColor = "#B7791F"
-redColor = "#C53030"
-blueColor = "#2B6CB0"
+greenColor = "#20C997"
+yellowColor = "#E8B44A"
+orangeColor = "#E8B44A"
+redColor = "#F06464"
+blueColor = "#5CB0F5"
 
 # Native Streamlit charts use the same categorical colours as the cluster map.
 chartCategoricalColors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#bcbd22", "#17becf", "#7f7f7f"]
 
 [theme.sidebar]
-backgroundColor = "#102233"
-textColor = "#E6EDF5"
-secondaryBackgroundColor = "#1B3349"
-borderColor = "#2C4862"
+backgroundColor = "#091827"
+textColor = "#EAF2FA"
+secondaryBackgroundColor = "#102438"
+borderColor = "#1E3A52"
 # The sidebar inherits theme.paddingTop unless set here; 1rem keeps its pre-Phase-4.2
 # position (Streamlit's built-in sidebar gap). Mirrors ui_theme.SIDEBAR_PADDING_TOP.
 paddingTop = "1rem"

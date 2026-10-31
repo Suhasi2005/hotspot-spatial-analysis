@@ -91,5 +91,5 @@ def test_no_hard_coded_chart_blue_remains():
 def test_summary_css_is_static_and_scoped_to_summary_keys():
     css = ui_theme.SHELL_CSS
     assert f".st-key-{ui_theme.SUMMARY_KPI_KEY} > *" in css
-    assert f'[class*="st-key-{ui_theme.SUMMARY_PANEL_PREFIX}"]' in css
-    assert "<" not in css and "@media" not in css
+    assert f'[class*="st-key-{ui_theme.PANEL_PREFIX}"]' in css
+    assert "<" not in css

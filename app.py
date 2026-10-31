@@ -1,14 +1,15 @@
 """Streamlit entry point: `streamlit run app.py`.
 
 Navigation only. Pages live in modules/dashboard.py; workflow in
-modules/app_controller.py. The sidebar is: brand, page links, then whatever
-the page adds (dataset status, analysis parameters, display filters).
+modules/app_controller.py. The shell (ui_components.app_shell) is: brand, page
+links, a page bar on phones; pages then add to the sidebar whatever they need
+(dataset status, analysis parameters, display filters).
 """
 
 import streamlit as st
 
-from modules.dashboard import BRAND_NAME, BRAND_TAGLINE, PAGE_INFO, PAGE_LINKS_KEY, PAGES, render_page
-from modules.ui_theme import NAV_ACTIVE_KEY, SHELL_CSS
+from modules.dashboard import BRAND_NAME, BRAND_TAGLINE, PAGE_INFO, PAGES, render_page
+from modules.ui_components import PAGE_LINKS_KEY, app_shell
 
 
 def _page_callable(name: str):
@@ -28,16 +29,7 @@ def main() -> None:
     ]
     current = st.navigation(pages, position="hidden")
     st.session_state[PAGE_LINKS_KEY] = dict(zip(PAGES, pages))   # for links inside pages
-    st.html(f"<style>{SHELL_CSS}</style>")          # static styling only; no user data
-    st.sidebar.markdown(f"### {BRAND_NAME}")
-    st.sidebar.caption(BRAND_TAGLINE)
-    for page in pages:
-        if page.url_path == current.url_path:
-            with st.sidebar.container(key=NAV_ACTIVE_KEY):   # teal background via SHELL_CSS
-                st.page_link(page, width="stretch")
-        else:
-            st.sidebar.page_link(page, width="stretch")
-    st.sidebar.divider()
+    app_shell(pages, current, BRAND_NAME, BRAND_TAGLINE)
     current.run()
 
 

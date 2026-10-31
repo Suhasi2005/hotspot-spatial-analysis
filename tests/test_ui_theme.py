@@ -17,11 +17,12 @@ CONFIG = ROOT / ".streamlit" / "config.toml"
 HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 APPROVED = {
-    "BACKGROUND": "#F6F7F9", "SURFACE": "#FFFFFF", "BORDER": "#E2E6EC",
-    "TEXT_PRIMARY": "#1A2433", "TEXT_SECONDARY": "#5A6677",
-    "ACCENT": "#0E6E8C", "ACCENT_HOVER": "#0A5468",
-    "SIDEBAR_BACKGROUND": "#102233", "SIDEBAR_TEXT": "#E6EDF5",
-    "SUCCESS": "#2F855A", "WARNING": "#B7791F", "ERROR": "#C53030", "INFO": "#2B6CB0",
+    "BACKGROUND": "#071321", "SECONDARY_BACKGROUND": "#0D1F30", "SURFACE": "#102438",
+    "SURFACE_ELEVATED": "#142B40", "BORDER": "#1E3A52", "BORDER_STRONG": "#2A4A66",
+    "TEXT_PRIMARY": "#EAF2FA", "TEXT_SECONDARY": "#9BB0C5",
+    "ACCENT": "#08B8D4", "ACCENT_HOVER": "#2CCDE6", "ACCENT_BLUE": "#2878E5", "ON_ACCENT": "#061A24",
+    "SIDEBAR_BACKGROUND": "#091827", "SIDEBAR_TEXT": "#EAF2FA",
+    "SUCCESS": "#20C997", "WARNING": "#E8B44A", "ERROR": "#F06464", "INFO": "#5CB0F5",
 }
 
 
@@ -55,17 +56,19 @@ def test_typography_tokens():
     assert ui_theme.FONT_FAMILY == "Inter"
     assert ui_theme.FONT_STACK.startswith("Inter, Segoe UI") and ui_theme.FONT_STACK.endswith("sans-serif")
     assert (ui_theme.BODY_SIZE_PX, ui_theme.PAGE_HEADING_PX, ui_theme.SECTION_HEADING_PX,
-            ui_theme.CARD_HEADING_PX, ui_theme.CAPTION_PX, ui_theme.HEADING_WEIGHT) == (15, 28, 20, 16, 13, 600)
+            ui_theme.CARD_HEADING_PX, ui_theme.CAPTION_PX, ui_theme.HEADING_WEIGHT) == (14, 26, 18, 14, 12, 600)
     assert round(0.875 * ui_theme.BODY_SIZE_PX) == ui_theme.CAPTION_PX    # Streamlit caption = 0.875rem
 
 
 @pytest.mark.parametrize("fg,bg,minimum", [
     ("TEXT_PRIMARY", "BACKGROUND", 7.0), ("TEXT_PRIMARY", "SURFACE", 7.0),
     ("TEXT_SECONDARY", "BACKGROUND", 4.5), ("TEXT_SECONDARY", "SURFACE", 4.5),
-    ("SURFACE", "ACCENT", 4.5),                                   # button text on the accent
-    ("ACCENT", "SURFACE", 4.5),                                   # links on white
+    ("TEXT_SECONDARY", "SURFACE_ELEVATED", 4.5),
+    ("ON_ACCENT", "ACCENT", 4.5), ("ON_ACCENT", "ACCENT_HOVER", 4.5),   # button text on the accent
+    ("ACCENT", "SURFACE", 4.5),                                   # links on cards
     ("SIDEBAR_TEXT", "SIDEBAR_BACKGROUND", 7.0), ("SIDEBAR_TEXT", "SIDEBAR_SURFACE", 7.0),
-    ("SURFACE", "ERROR", 4.5), ("SURFACE", "SUCCESS", 4.5), ("SURFACE", "INFO", 4.5),
+    ("TEXT_PRIMARY", "NAV_ACTIVE_BACKGROUND", 4.5),               # active page in the navigation
+    ("ERROR", "SURFACE", 4.5), ("SUCCESS", "SURFACE", 4.5), ("WARNING", "SURFACE", 4.5), ("INFO", "SURFACE", 4.5),
 ])
 def test_text_colour_pairs_meet_wcag_contrast(fg, bg, minimum):
     assert _contrast(getattr(ui_theme, fg), getattr(ui_theme, bg)) >= minimum
@@ -76,14 +79,14 @@ def test_text_colour_pairs_meet_wcag_contrast(fg, bg, minimum):
 
 def test_streamlit_theme_uses_the_design_tokens():
     theme = _theme()
-    assert theme["base"] == "light"
+    assert theme["base"] == "dark"
     assert (theme["primaryColor"], theme["backgroundColor"], theme["secondaryBackgroundColor"],
             theme["textColor"], theme["borderColor"], theme["linkColor"]) == (
         ui_theme.ACCENT, ui_theme.BACKGROUND, ui_theme.SURFACE, ui_theme.TEXT_PRIMARY,
-        ui_theme.BORDER, ui_theme.ACCENT)
+        ui_theme.BORDER_STRONG, ui_theme.ACCENT)
     assert (theme["greenColor"], theme["yellowColor"], theme["redColor"], theme["blueColor"]) == (
         ui_theme.SUCCESS, ui_theme.WARNING, ui_theme.ERROR, ui_theme.INFO)
-    assert theme["showWidgetBorder"] is True and theme["baseRadius"] == "6px"
+    assert theme["showWidgetBorder"] is True and theme["baseRadius"] == "8px"
 
 
 def test_streamlit_theme_typography():

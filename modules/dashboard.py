@@ -43,13 +43,14 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
+from modules.ui_components import empty_state, kpi_grid, kpi_strip, page_header, panel
 from modules.ui_theme import (
     ACCENT,
-    EMPTY_STATE_PREFIX,
-    HISTORY_PANEL_PREFIX,
-    KPI_KEY_PREFIX,
+    CHART_SECONDARY,
+    FILTERS_KEY,
     SUMMARY_KPI_KEY,
-    SUMMARY_PANEL_PREFIX,
+    SURFACE,
+    TEXT_PRIMARY,
     bar_chart_layout,
     plotly_template,
 )
@@ -83,8 +84,6 @@ SYNTHETIC_NOTICE = ("Synthetic demonstration data: every record is artificial. T
 
 # --- tables, empty states and History (Stage 10B Phase 4.4) -------------------------------
 TABLE_SCROLL_HINT = "On narrow screens, scroll this table sideways to see every column."
-# Session-state key for {page name: st.Page}, set by app.py so pages can link to each other.
-PAGE_LINKS_KEY = "page_links"
 # The History frame keeps every column; these lists only choose what each table displays.
 # Run ID sits with the parameters so the results table fits a laptop without sideways scrolling.
 HISTORY_RESULT_COLUMNS = ("saved (UTC)", "source", "accepted / total rows", "status", "reports",
@@ -95,7 +94,6 @@ HISTORY_PARAMETER_COLUMNS = ("saved (UTC)", "run id", "eps_m", "min_samples", "m
 # --- application shell (Stage 10B Phase 2) ---------------------------------------------
 BRAND_NAME = "Hotspot Analytics"
 BRAND_TAGLINE = "Spatial Incident Analysis"
-KPI_PER_ROW = 4
 # Page name (as used by render_page and the tests) -> navigation label, Material icon,
 # URL path and the one-line description shown under the page title.
 PAGE_INFO: dict[str, tuple[str, str, str, str]] = {
@@ -160,54 +158,12 @@ def _render_page_body(name: str) -> None:
 
 def _page_header(name: str) -> None:
     """Page title (unchanged text) plus its one-line description."""
-    st.header(name)
-    st.caption(PAGE_INFO[name][3])
-
-
-def kpi_strip(items: list[tuple[str, str]]) -> None:
-    """KPI cards from (label, value) pairs, at most KPI_PER_ROW per row.
-
-    Values are shown exactly as given; callers pass existing values only and use
-    NOT_RUN when an analysis has not produced one.
-
-    Each card is an st.metric inside a keyed container (see kpi_key) that
-    ui_theme.SHELL_CSS styles as a white card; status values become a coloured
-    badge whose text still states the status.
-    """
-    for row in kpi_rows(items):
-        for column, (label, value) in zip(st.columns(KPI_PER_ROW), row):
-            with column.container(key=kpi_key(label, value)):
-                st.metric(label, value)
-
-
-def kpi_grid(items: list[tuple[str, str]], key: str) -> None:
-    """KPI cards in a wrapping row: same cards as kpi_strip, but two across on phones."""
-    with st.container(horizontal=True, wrap=True, key=key):
-        for label, value in items:
-            with st.container(key=kpi_key(label, value)):
-                st.metric(label, value)
+    page_header(name, PAGE_INFO[name][3])
 
 
 def column_label(name: str) -> str:
     """Readable Title Case heading for a data column, e.g. incident_id -> Incident ID."""
     return " ".join("ID" if word == "id" else word.capitalize() for word in str(name).replace("_", " ").split())
-
-
-def _page_link(page: str, label: str) -> None:
-    """Link to another page; skipped when no page objects are registered (pages run alone)."""
-    target = st.session_state.get(PAGE_LINKS_KEY, {}).get(page)
-    if target is not None:
-        st.page_link(target, label=label, icon=":material/arrow_forward:")
-
-
-def empty_state(key: str, icon: str, heading: str, message: str, show=st.info,
-                link: tuple[str, str] | None = None) -> None:
-    """Card for "nothing here yet": heading, the existing message, and an optional next step."""
-    with st.container(key=f"{EMPTY_STATE_PREFIX}{key}"):
-        st.markdown(f"#### {icon} {heading}")
-        show(message)
-        if link is not None:
-            _page_link(*link)
 
 
 def _render_dataset_status(box) -> None:
@@ -272,40 +228,9 @@ def analysis_cache_key(config: AnalysisConfig) -> tuple:
     return tuple(sorted((k, repr(v)) for k, v in asdict(config).items()))
 
 
-STATUS_KPI_LABELS = ("Analysis status", "Validation status")
-
-
-def kpi_tone(label: str, value: str) -> str | None:
-    """Badge tone for a status KPI (success / warning / error / info); None for other KPIs.
-
-    Display only: the value text itself is unchanged and always shown.
-    """
-    if label not in STATUS_KPI_LABELS:
-        return None
-    if value in ("Complete", "Ready"):
-        return "success"
-    if value.startswith("Partial") or value == "Ready with rejections":
-        return "warning"
-    if value in ("Failed", "Unusable", "Dataset unusable"):
-        return "error"
-    return "info"                                                      # NOT_RUN and anything unexpected
-
-
-def kpi_key(label: str, value: str) -> str:
-    """Container key for one KPI card; status cards carry their badge tone for the CSS."""
-    slug = "".join(ch if ch.isalnum() else "_" for ch in label.lower())
-    tone = kpi_tone(label, value)
-    return f"{KPI_KEY_PREFIX}{f'badge_{tone}_' if tone else 'card_'}{slug}"
-
-
 def is_synthetic_source(name: str) -> bool:
     """True for files named as synthetic (data/sample/README.md requires it in the file name)."""
     return "synthetic" in name.lower()
-
-
-def kpi_rows(items: list[tuple[str, str]], per_row: int = KPI_PER_ROW) -> list[list[tuple[str, str]]]:
-    """Split KPI (label, value) pairs into rows of at most `per_row`."""
-    return [items[i:i + per_row] for i in range(0, len(items), per_row)]
 
 
 def analysis_status(entry: dict[str, Any] | None) -> str:
@@ -416,7 +341,7 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
         ("Noise share", noise_share),
     ])
 
-    filters = st.sidebar.expander(FILTERS_LABEL, expanded=True, icon=":material/filter_alt:")
+    filters = st.sidebar.container(key=FILTERS_KEY).expander(FILTERS_LABEL, expanded=True, icon=":material/filter_alt:")
     filters.caption("Change only what the cluster map and the 'shown' bars display. "
                     "DBSCAN, KDE and the summary always use all accepted incidents.")
     severities = _category_filter(filters, frame, "severity", "Severity (display only)")
@@ -481,28 +406,29 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
             [
                 go.Bar(name="All members (analysis)", x=table["cluster"].astype(str), y=table["incidents"],
                        marker_color=[cluster_color(c) for c in table["cluster"]],
-                       marker_line_color=["#000000" if c in candidates else "rgba(0,0,0,0)" for c in table["cluster"]],
+                       marker_line_color=[TEXT_PRIMARY if c in candidates else "rgba(0,0,0,0)" for c in table["cluster"]],
                        marker_line_width=3),
                 go.Bar(name="Shown under display filters", x=table["cluster"].astype(str), y=table["shown under filters"],
-                       marker_color="#bbbbbb"),
+                       marker_color=CHART_SECONDARY),
             ]
         )
         # Short wrapped title, legend below the plot and automargins so nothing is
         # clipped or overlapped at phone width; data and bar colours are unchanged.
         fig.update_layout(template=plotly_template(), barmode="group",
-                          title={"text": "Cluster sizes<br><sup>Black outline = candidate hotspot (size rule only)</sup>",
+                          title={"text": "Cluster sizes<br><sup>White outline = candidate hotspot (size rule only)</sup>",
                                  "x": 0, "xanchor": "left", "y": 0.97, "yanchor": "top"},
+                          paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
                           xaxis_title="Cluster label (an identifier, not a rank)", yaxis_title="Incidents",
                           legend={"orientation": "h", "x": 0, "xanchor": "left", "y": -0.3, "yanchor": "top"},
                           margin={"l": 48, "r": 16, "t": 64, "b": 96}, height=400)
         fig.update_xaxes(automargin=True)
         fig.update_yaxes(automargin=True)
-        st.plotly_chart(fig, width="stretch", key="chart_cluster_sizes")
+        st.plotly_chart(fig, width="stretch", theme=None, key="chart_cluster_sizes")
 
 
 def _cluster_explanation(config: AnalysisConfig) -> None:
     """Legend and method notes beside the cluster map, using this run's parameters."""
-    with st.container(border=True):
+    with panel("cluster_legend"):
         st.markdown("**How to read this map**")
         st.markdown(
             "- **Coloured points:** members of a DBSCAN cluster, one colour per cluster.\n"
@@ -548,7 +474,7 @@ def _render_density_page(results: dict[str, Any]) -> None:
                    "Display filters do not apply here.")
         st_folium(build_density_map(density), height=520, use_container_width=True, returned_objects=[],
                   key="density_map")
-    with info_col, st.container(border=True):
+    with info_col, panel("density_info"):
         st.markdown("**How to read this map**")
         st.info(KDE_DISCLAIMER, icon=":material/info:")
         st.markdown(
@@ -625,7 +551,7 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
         f"Bounding box (min lat, min lon, max lat, max lon): {', '.join(f'{v:.5f}' for v in s.bounding_box)} · "
         f"Mean centre (lat, lon): {s.mean_center[0]:.5f}, {s.mean_center[1]:.5f}"
     )
-    with st.container(key=f"{SUMMARY_PANEL_PREFIX}save"):
+    with panel("save"):
         _render_save_section(dataset, results)
 
     comparison_tab, distributions_tab, notes_tab = st.tabs(SUMMARY_TABS)
@@ -634,13 +560,13 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
         _render_method_comparison(mc)
     with distributions_tab:
         _render_distributions(dataset, s)
-    with notes_tab, st.container(key=f"{SUMMARY_PANEL_PREFIX}notes"):
+    with notes_tab, panel("notes"):
         st.subheader("Notes and caveats")
         st.markdown("\n".join(f"- {n}" for n in s.notes + (mc.notes if mc else [])))
 
 
 def _render_method_comparison(mc) -> None:
-    with st.container(key=f"{SUMMARY_PANEL_PREFIX}comparison"):
+    with panel("comparison"):
         st.subheader("DBSCAN vs KDE (descriptive comparison)")
         if mc is None:
             st.info("Not available: the comparison needs both DBSCAN and KDE results.")
@@ -718,7 +644,7 @@ def _summary_bar_chart(x, y, title: str, subtitle: str, xaxis_title: str, name: 
     """One count chart in a white panel; values come straight from the summary."""
     fig = go.Figure(go.Bar(x=x, y=y, marker_color=ACCENT, text=y, textposition="outside", cliponaxis=False))
     fig.update_layout(**bar_chart_layout(title, subtitle, xaxis_title))
-    with st.container(key=f"{SUMMARY_PANEL_PREFIX}chart_{name}"):
+    with panel(f"chart_{name}"):
         # theme=None: Streamlit's chart theme would replace the template's white background.
         st.plotly_chart(fig, width="stretch", theme=None, key=f"chart_{name}")
 
@@ -806,7 +732,7 @@ def _render_history_page() -> None:
             ("Runs with reports", str(sum(1 for r in runs if r["report_paths"]))),
         ])
         table = pd.DataFrame([_history_row(r) for r in runs])
-        with st.container(key=f"{HISTORY_PANEL_PREFIX}runs"):
+        with panel("runs"):
             st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
             st.dataframe(table, hide_index=True, width="stretch", column_order=HISTORY_RESULT_COLUMNS,
                          column_config=_history_column_config())
@@ -828,7 +754,7 @@ def _render_history_page() -> None:
                     link=("Summary", "Go to Summary") if runs else None)
         return
     labels = {r["run_id"]: _run_label(r) for r in with_reports}
-    with st.container(key=f"{HISTORY_PANEL_PREFIX}reports"):
+    with panel("reports"):
         st.warning(CSV_SAFETY_WARNING)
         chosen = st.selectbox("Run", list(labels), format_func=labels.get, key="history_report_run")
         row = next(r for r in with_reports if r["run_id"] == chosen)
@@ -897,7 +823,7 @@ def render_data_page() -> None:
     """Load a CSV (sample or upload), validate it, and show the quality report."""
     _page_header("Data")
     samples = list_sample_datasets()
-    with st.container(border=True):
+    with panel("data_source"):
         st.markdown("**Data source**")
         st.caption("Upload a CSV with incident_id, latitude and longitude columns (WGS84 decimal degrees); "
                    "severity, incident_type and incident_date are optional. Or choose a bundled sample dataset.")

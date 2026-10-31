@@ -60,12 +60,12 @@ def test_streamlit_import_detector(source, expected):
 
 
 def test_analysis_modules_do_not_import_streamlit():
-    """Only dashboard.py may import Streamlit; business logic stays UI-free."""
+    """Only dashboard.py and ui_components.py may import Streamlit; business logic stays UI-free."""
     modules_dir = Path(__file__).resolve().parent.parent / "modules"
     offenders = [
         p.name
         for p in modules_dir.glob("*.py")
-        if p.name != "dashboard.py" and _imports_streamlit(p.read_text(encoding="utf-8"))
+        if p.name not in {"dashboard.py", "ui_components.py"} and _imports_streamlit(p.read_text(encoding="utf-8"))
     ]
     assert offenders == []
 

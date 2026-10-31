@@ -22,8 +22,9 @@ python --version                # must report 3.12.x
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1    # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 ```
+`requirements.lock.txt` holds the exact tested versions. `requirements.txt` lists the direct dependencies with allowed ranges.
 macOS/Linux: `python3.12 -m venv .venv && source .venv/bin/activate`, then the same `pip` commands.
 
 ## Run (with the venv activated)

@@ -417,6 +417,15 @@ Display only. Stored runs, report files, sorting, widget keys and the data behin
 - **Empty states:** `empty_state` puts a heading, the existing message (same text prefix and message type) and an optional next step in a white card. Links use `st.page_link` with the `st.Page` objects that `app.py` stores under `PAGE_LINKS_KEY`; when a page runs alone, the link is skipped.
 - **History:** one frame feeds two views through `column_order`: results (`HISTORY_RESULT_COLUMNS`), and run ID with parameters in an expander (`HISTORY_PARAMETER_COLUMNS`). `CSV_SAFETY_WARNING` shows only when a run has reports. The run selector shows the saved time, file and short ID, and still returns the full run ID.
 
+## Stage 1 dark design system and shell
+Display only. Analysis, validation, storage, reports, widget keys and page layouts are unchanged.
+- **Tokens (`ui_theme`):** the dark palette, including `SURFACE_ELEVATED`, `BORDER_STRONG`, `ACCENT_BLUE` (fills only) and `ON_ACCENT` (text on the accent). `.streamlit/config.toml` applies them through `theme.base = "dark"`.
+- **`ui_components.py`:** the shared components: `app_shell`, `page_header`, `page_link`, `panel`, `empty_state`, `kpi_strip`, `kpi_grid`. Besides `dashboard.py`, it is the only module that may import Streamlit. It holds no page-specific logic.
+- **Navigation:** the sidebar on wide screens, and below 768 px a phone bar with all five pages, because Streamlit hides the sidebar there. Both show the active page with a tint and an accent bar.
+- **Panels:** `panel(name)` replaces bordered containers and the older Summary and History panel prefixes, so all cards share one style.
+- **Charts:** Plotly charts use `theme=None` so the dark template applies. The candidate-hotspot outline in the cluster-size chart is now white, because black does not show on dark.
+- **Maps:** unchanged in this stage. They keep their light tiles and colours until Stages 3 and 4.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

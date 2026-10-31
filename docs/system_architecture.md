@@ -34,6 +34,7 @@ modules/contracts.py shared dataclasses + exceptions
 | `spatial_statistics.py` | M3/M5 | Distances, descriptive statistics, method comparison |
 | `map_visualization.py` | M4 | Folium layers |
 | `dashboard.py` | M4 | Streamlit pages, filters, Plotly charts |
+| `ui_components.py` | M4 | Shared Streamlit components and the application shell |
 | `app_controller.py` | M5 | Runs the pipeline; the UI calls only this |
 | `database.py` | M5 | `sqlite3` run history |
 | `report_generator.py` | M5 | CSV + ReportLab PDF |

@@ -14,7 +14,8 @@ from streamlit.testing.v1 import AppTest
 
 import modules.dashboard as dashboard
 from modules import ui_theme
-from modules.dashboard import NOT_RUN, kpi_key, kpi_tone
+from modules.dashboard import NOT_RUN
+from modules.ui_components import kpi_key, kpi_tone
 from modules.data_validator import validate_and_clean
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,22 +39,22 @@ def test_surface_spacing_and_radius_tokens():
     assert ui_theme.RADIUS_CARD_PX == 10
     assert ui_theme.SPACING_PX == (4, 8, 12, 16, 24, 32)
     assert (ui_theme.SPACE_XS, ui_theme.SPACE_2XL) == (4, 32)
-    assert ui_theme.SHADOW_CARD.startswith("0 1px") and "rgba(16, 34, 51" in ui_theme.SHADOW_CARD
-    assert (ui_theme.KPI_LABEL_PX, ui_theme.KPI_LABEL_WEIGHT, ui_theme.METRIC_VALUE_PX) == (13, 500, 28)
+    assert ui_theme.SHADOW_CARD.startswith("0 1px") and "rgba(2, 8, 16" in ui_theme.SHADOW_CARD
+    assert (ui_theme.KPI_LABEL_PX, ui_theme.KPI_LABEL_WEIGHT, ui_theme.METRIC_VALUE_PX) == (12, 500, 28)
 
 
 @pytest.mark.parametrize("tone", ["success", "warning", "error", "info"])
 def test_badges_are_tints_of_the_status_tokens_with_readable_text(tone):
     background, text = ui_theme.BADGE_BACKGROUND[tone], ui_theme.BADGE_TEXT[tone]
     assert re.fullmatch(r"#[0-9A-F]{6}", background) and re.fullmatch(r"#[0-9A-F]{6}", text)
-    assert background == ui_theme._mix(ui_theme.STATUS_COLOURS[tone], ui_theme.SURFACE, 0.12)
+    assert background == ui_theme._mix(ui_theme.STATUS_COLOURS[tone], ui_theme.SURFACE, 0.16)
     assert _contrast(text, background) >= 4.5                                 # WCAG AA for normal text
     assert _contrast(text, ui_theme.SURFACE) >= 4.5
 
 
 def test_status_and_brand_colours_are_unchanged():
-    assert (ui_theme.SUCCESS, ui_theme.WARNING, ui_theme.ERROR, ui_theme.INFO) == ("#2F855A", "#B7791F", "#C53030", "#2B6CB0")
-    assert (ui_theme.ACCENT, ui_theme.SIDEBAR_BACKGROUND) == ("#0E6E8C", "#102233")
+    assert (ui_theme.SUCCESS, ui_theme.WARNING, ui_theme.ERROR, ui_theme.INFO) == ("#20C997", "#E8B44A", "#F06464", "#5CB0F5")
+    assert (ui_theme.ACCENT, ui_theme.SIDEBAR_BACKGROUND) == ("#08B8D4", "#091827")
 
 
 # --- static CSS and config -------------------------------------------------------------------
@@ -66,7 +67,8 @@ def test_kpi_css_is_static_scoped_to_keyed_containers_and_uses_tokens():
     for tone in ("success", "warning", "error", "info"):
         assert f'[class*="st-key-kpi_badge_{tone}_"]' in css and ui_theme.BADGE_BACKGROUND[tone] in css
     # every rule starts from a keyed container; no Streamlit element ids or nth-child selectors
-    selectors = [rule.split("{")[0].strip() for rule in css.strip().splitlines()]
+    rules = [rule.split("{", 1)[1].strip() if rule.startswith("@media") else rule for rule in css.strip().splitlines()]
+    selectors = [rule.split("{")[0].strip() for rule in rules]
     assert all(sel.startswith((".st-key-", '[class*="st-key-')) for sel in selectors)
     assert "#" not in "".join(selectors) and "nth-child" not in css
 
@@ -123,7 +125,8 @@ def test_status_badges_wrap_inside_cards_and_cards_top_align():
     """Long badge text wraps within the card; labels share one offset; 104 px card height kept."""
     css = ui_theme.SHELL_CSS
     assert ui_theme.KPI_CARD_MIN_HEIGHT_PX == 104 and "min-height: 104px" in css
-    assert "justify-content: flex-start" in css and "justify-content: center" not in css
+    card_rule = next(rule for rule in css.splitlines() if rule.startswith('[class*="st-key-kpi_"] {'))
+    assert "justify-content: flex-start" in card_rule
     assert "white-space: normal" in css and "max-width: 100%" in css and "overflow-wrap: break-word" in css
     assert ui_theme.BADGE_RADIUS_PX == 13 and "border-radius: 13px" in css and "999px" not in css
-    assert f"font-size: {ui_theme.BADGE_VALUE_PX}px" in css and ui_theme.BADGE_VALUE_PX == 15
+    assert f"font-size: {ui_theme.BADGE_VALUE_PX}px" in css and ui_theme.BADGE_VALUE_PX == 14

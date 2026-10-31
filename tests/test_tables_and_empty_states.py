@@ -21,6 +21,7 @@ from modules.dashboard import (
     column_label,
 )
 from modules.data_validator import validate_and_clean
+from modules.ui_components import PAGE_LINKS_KEY
 from modules.report_generator import CSV_SAFETY_WARNING
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,7 +31,8 @@ LINKED_SCRIPT = f"""
 import sys
 sys.path.insert(0, {str(ROOT)!r})
 import streamlit as st
-from modules.dashboard import PAGE_LINKS_KEY, PAGES, render_page
+from modules.dashboard import PAGES, render_page
+from modules.ui_components import PAGE_LINKS_KEY
 def page(): pass
 pages = [st.Page(page, title=name, url_path=str(i or 'home'), default=i == 0) for i, name in enumerate(PAGES)]
 st.navigation(pages, position="hidden")
@@ -116,11 +118,11 @@ def test_links_render_when_pages_are_registered_and_are_skipped_otherwise():
 def test_app_registers_every_page_for_links():
     at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=120).run()
     assert not at.exception
-    assert list(at.session_state[dashboard.PAGE_LINKS_KEY]) == list(dashboard.PAGES)
+    assert list(at.session_state[PAGE_LINKS_KEY]) == list(dashboard.PAGES)
 
 
 def test_empty_state_css_is_static_and_scoped():
     css = ui_theme.SHELL_CSS
-    for prefix in (ui_theme.EMPTY_STATE_PREFIX, ui_theme.HISTORY_PANEL_PREFIX):
+    for prefix in (ui_theme.EMPTY_STATE_PREFIX, ui_theme.PANEL_PREFIX):
         assert f'[class*="st-key-{prefix}"]' in css
     assert ui_theme.ACCENT_HOVER in css and "<" not in css and "script" not in css.lower()

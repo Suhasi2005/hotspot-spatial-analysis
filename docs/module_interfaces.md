@@ -430,6 +430,7 @@ Display only. Analysis, validation, storage, reports, widget keys and page layou
 Layout only. Validation, messages, counts, Source Row, the three tabs and the map rendering are unchanged.
 - **Before a dataset loads:** `_render_upload_workspace` shows the source controls with a prominent drop area, beside the accepted format taken from `REQUIRED_COLUMNS` and `OPTIONAL_COLUMNS`. A file that cannot be loaded shows its error here.
 - **After loading:** `dataset_bar` (file name, counts, status badge), a "Change dataset" expander holding the same controls, the KPI cards, the message, then the tabs in a panel. The expander opens by itself for an unusable dataset.
+- **Dataset retention (Stage 2.1):** the dataset stays in session state across pages, because Streamlit forgets the uploader when it leaves the page. It is replaced only by a successful load. A file that cannot be loaded shows its error and leaves the current dataset in place. The uploader's ✕ clears only the file; the "Remove dataset" button, shown when the uploader is empty, removes the dataset. It lasts for the browser session, and nothing is written to disk.
 - **Source selection:** `_selected_source` reads the choice before drawing, so the page picks its layout first. The widgets now have keys (`data_source_mode`, `data_upload`, `data_sample`) because they move between layouts.
 
 ## Invariants every implementer must keep

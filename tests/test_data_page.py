@@ -113,3 +113,61 @@ def test_missing_optional_columns_are_reported_not_rejected(tmp_path, monkeypatc
 
 def test_every_status_tone_has_a_badge_colour():
     assert set(BADGE_COLOURS) == {"success", "warning", "error", "info"}
+
+
+# --- dataset retention (Stage 2.1) -------------------------------------------------------------
+
+
+def _retained(tmp_path, monkeypatch, name="valid_full.csv"):
+    """A page run as after navigating back: dataset in session, widgets forgotten."""
+    dataset = _load(tmp_path, monkeypatch, name).session_state[dashboard.DATASET_KEY]
+    at = AppTest.from_string(SCRIPT, default_timeout=120)
+    at.session_state[dashboard.DATASET_KEY] = dataset
+    at.run()
+    assert not at.exception
+    return at, dataset
+
+
+def test_returning_to_the_page_keeps_the_same_dataset(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    assert at.session_state[dashboard.DATASET_KEY] is dataset            # same object, so analysis is reused
+    assert r"valid\_full\.csv" in _text(at) and "Load incident data" not in _text(at)
+    assert _metrics(at)["Accepted"] == "6" and len(at.tabs) == 3
+
+
+def test_choosing_upload_without_a_file_keeps_the_dataset(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    at.radio(key=SOURCE_MODE_KEY).set_value(SOURCE_OPTIONS[0]).run()
+    assert at.session_state[dashboard.DATASET_KEY] is dataset
+
+
+def test_a_file_that_cannot_be_loaded_does_not_replace_the_dataset(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    monkeypatch.setattr(dashboard, "list_sample_datasets", lambda: [tmp_path / "wrong_columns.csv"])
+    at.radio(key=SOURCE_MODE_KEY).set_value(SOURCE_OPTIONS[1]).run()
+    assert at.session_state[dashboard.DATASET_KEY] is dataset
+    message = next(e.value for e in at.error if "This file cannot be used" in e.value)
+    assert "The current dataset is still loaded." in message
+    assert r"valid\_full\.csv" in _text(at)                              # the bar names what is kept
+    assert next(e for e in at.main.expander if e.label == "Change dataset").proto.expanded is True
+
+
+def test_a_valid_file_replaces_the_dataset(tmp_path, monkeypatch):
+    at, dataset = _retained(tmp_path, monkeypatch)
+    monkeypatch.setattr(dashboard, "list_sample_datasets", lambda: [tmp_path / "required_only.csv"])
+    at.radio(key=SOURCE_MODE_KEY).set_value(SOURCE_OPTIONS[1]).run()
+    assert at.session_state[dashboard.DATASET_KEY] is not dataset and r"required\_only\.csv" in _text(at)
+
+
+def test_remove_dataset_returns_to_the_workspace(tmp_path, monkeypatch):
+    at, _ = _retained(tmp_path, monkeypatch)
+    at.button(key="remove_dataset").click().run()
+    assert not at.exception and dashboard.DATASET_KEY not in at.session_state
+    assert "Load incident data" in _text(at) and len(at.metric) == 0
+
+
+def test_remove_dataset_also_works_from_sample_mode(tmp_path, monkeypatch):
+    at = _load(tmp_path, monkeypatch, "valid_full.csv")
+    at.button(key="remove_dataset").click().run()
+    assert not at.exception and dashboard.DATASET_KEY not in at.session_state
+    assert at.radio(key=SOURCE_MODE_KEY).value == SOURCE_OPTIONS[0]

@@ -90,6 +90,7 @@ SOURCE_OPTIONS = ("Upload a CSV", "Sample dataset")
 SOURCE_MODE_KEY = "data_source_mode"
 SOURCE_UPLOAD_KEY = "data_upload"
 SOURCE_SAMPLE_KEY = "data_sample"
+DATASET_KEY = "dataset"
 INCIDENT_MAP_HEIGHT_PX = 560
 
 # --- tables, empty states and History (Stage 10B Phase 4.4) -------------------------------
@@ -144,7 +145,7 @@ def _render_page_body(name: str) -> None:
 
     config = _sidebar_config()
     _page_header(name)
-    dataset = st.session_state.get("dataset")
+    dataset = st.session_state.get(DATASET_KEY)
     if dataset is None:
         empty_state("no_dataset", ":material/upload_file:", "No dataset loaded yet",
                     "No dataset loaded. Load and validate a CSV on the Data page first.", link=("Data", "Go to Data"))
@@ -178,7 +179,7 @@ def column_label(name: str) -> str:
 
 def _render_dataset_status(box) -> None:
     """Sidebar summary of the current dataset and last analysis (session state only)."""
-    dataset = st.session_state.get("dataset")
+    dataset = st.session_state.get(DATASET_KEY)
     with box:
         st.markdown("**Dataset**")
         if dataset is None:
@@ -841,16 +842,32 @@ def render_data_page() -> None:
         except DataValidationError as exc:
             load_error = str(exc)
 
+    if dataset is not None:
+        st.session_state[DATASET_KEY] = dataset
+    else:
+        # Kept across pages and failed loads. An empty uploader says nothing about the user's
+        # intent: Streamlit forgets it on other pages and empties it while swapping files.
+        dataset = st.session_state.get(DATASET_KEY)
+
     if dataset is None:
-        st.session_state.pop("dataset", None)
         _render_upload_workspace(samples, load_error)
         return
 
-    st.session_state["dataset"] = dataset
     _render_dataset_bar(dataset)
-    with st.expander("Change dataset", expanded=not dataset.report.is_usable, icon=":material/swap_horiz:"):
+    if load_error is not None:
+        st.error(f"This file cannot be used: {load_error} The current dataset is still loaded.")
+    with st.expander("Change dataset", expanded=load_error is not None or not dataset.report.is_usable,
+                     icon=":material/swap_horiz:"):
         _source_controls(samples)
+        if st.session_state.get(SOURCE_UPLOAD_KEY) is None:
+            st.button("Remove dataset", key="remove_dataset", icon=":material/delete:", on_click=_remove_dataset)
     _render_validation(dataset)
+
+
+def _remove_dataset() -> None:
+    """Explicitly start over: back to the empty upload workspace."""
+    st.session_state.pop(DATASET_KEY, None)
+    st.session_state[SOURCE_MODE_KEY] = SOURCE_OPTIONS[0]
 
 
 def _selected_source(samples: list[Path]):

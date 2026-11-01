@@ -458,6 +458,16 @@ Display only. DBSCAN, KDE, the summary, parameters, validation, persistence and 
 - **Key findings:** `key_findings` builds each sentence from the validation report, the analysis results or the parameters used. An analysis that failed adds no finding. The only value not already shown elsewhere is where the KDE peak sits, read directly from the grid.
 - **Kept:** Save to history, Reports, and the Method Comparison, Distributions and Notes tabs, with their widget keys.
 
+## Stage 6 History & Reports page
+The database, the stored format, report contents and `generate_reports` are unchanged.
+- **Title:** the page shows "Analysis History & Reports"; its name in the navigation is unchanged.
+- **KPIs and table:** counts come from `list_runs`. Report files are counted only if they still exist on disk.
+- **Selection:** the `history_report_run` selectbox now lists every saved run and starts empty, so details and reports appear after a run is chosen.
+- **Details:** `_render_run_details` shows only what the history stores: counts, parameters and totals. It does not hold incident rows or per-cluster results, and the page says so.
+- **Report status:** `report_status` reads the state from the database and the disk: Available, Partly available, Files missing, Ready to generate or Not generated.
+- **Generating on this page:** the run whose results are still cached in this session can be generated here (`history_generate_reports`), by the same `_report_button` the Summary page uses. The cache holds one analysis, so any other run has no results in memory and cannot, as before.
+- **Buttons:** Save and Generate reports sit in an `st.empty` slot and are cleared in the run that finishes them. They stay after a failure, so the user can retry.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

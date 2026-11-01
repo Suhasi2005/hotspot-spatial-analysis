@@ -130,6 +130,8 @@ _KPI_CSS = (
 SUMMARY_KPI_KEY = "summary_kpis"
 SUMMARY_DENSITY_KPI_KEY = "summary_density_kpis"
 SUMMARY_FINDINGS_KEY = "summary_findings"
+HISTORY_KPI_KEY = "history_kpis"
+HISTORY_DETAIL_KPI_KEY = "history_detail_kpis"
 FINDING_PREFIX = "finding_"
 DATA_KPI_KEY = "data_kpis"
 CLUSTER_KPI_KEY = "cluster_kpis"
@@ -139,10 +141,14 @@ PANEL_PREFIX = "panel_"
 EMPTY_STATE_PREFIX = "empty_state_"
 _EMPTY_LINK = f'[class*="st-key-{EMPTY_STATE_PREFIX}"] a'
 KPI_GRID_MIN_CARD_PX = 160
+_COMPACT_KPI_KEYS = (SUMMARY_KPI_KEY, SUMMARY_DENSITY_KPI_KEY, HISTORY_KPI_KEY, HISTORY_DETAIL_KPI_KEY)
+_COMPACT_KPIS = ", ".join(f".st-key-{key} {_KPI}" for key in _COMPACT_KPI_KEYS)
+_COMPACT_KPI_VALUES = ", ".join(f'.st-key-{key} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"]'
+                                for key in _COMPACT_KPI_KEYS)
 SUMMARY_KPI_SINGLE_ROW_PX = 1400   # below this width the six Summary cards use two rows of three
 FINDING_MIN_CARD_PX = 240
 _SUMMARY_CSS = (
-    f".st-key-{DATA_KPI_KEY} > *, .st-key-{CLUSTER_KPI_KEY} > * {{ "
+    f".st-key-{DATA_KPI_KEY} > *, .st-key-{CLUSTER_KPI_KEY} > *, .st-key-{HISTORY_KPI_KEY} > * {{ "
     f"flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
     # Five cards across on desktop; the odd card fills the last row on phones.
@@ -157,11 +163,9 @@ _SUMMARY_CSS = (
     f"@media (min-width: {SUMMARY_KPI_SINGLE_ROW_PX}px) {{ .st-key-{SUMMARY_KPI_KEY} > * {{ "
     f"flex-basis: calc(16% - {SPACE_LG}px); }} }}\n"
     f".st-key-{SUMMARY_DENSITY_KPI_KEY} > * {{ flex: 1 1 calc(50% - {SPACE_LG}px); max-width: 100%; min-width: 130px; }}\n"
-    f".st-key-{SUMMARY_KPI_KEY} {_KPI}, .st-key-{SUMMARY_DENSITY_KPI_KEY} {_KPI} {{ min-height: 0; "
-    f"padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }}\n"
-    f'.st-key-{SUMMARY_KPI_KEY} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"], '
-    f'.st-key-{SUMMARY_DENSITY_KPI_KEY} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"] {{ '
-    f"font-size: {DENSITY_METRIC_VALUE_PX}px; }}\n"
+    f".st-key-{HISTORY_DETAIL_KPI_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; min-width: 130px; }}\n"
+    f"{_COMPACT_KPIS} {{ min-height: 0; padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }}\n"
+    f"{_COMPACT_KPI_VALUES} {{ font-size: {DENSITY_METRIC_VALUE_PX}px; }}\n"
     f".st-key-{SUMMARY_FINDINGS_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {FINDING_MIN_CARD_PX}px; display: flex; flex-direction: column; }}\n"
     f'[class*="st-key-{FINDING_PREFIX}"] {{ flex: 1 1 auto; background-color: {SURFACE_ELEVATED}; border: 1px solid {BORDER}; '

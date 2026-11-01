@@ -90,14 +90,14 @@ def test_empty_history_has_no_csv_warning():
     at = _app("History & Reports")
     assert not at.exception
     assert CSV_SAFETY_WARNING not in [w.value for w in at.warning]
-    info = [i.value for i in at.info]
-    assert any("No runs saved yet" in m for m in info) and any("Generate reports" in m for m in info)
+    assert any("No runs saved yet" in i.value for i in at.info)
 
 
 def test_populated_history_shows_warning_tables_and_parameters():
     _saved_run_with_reports()
     at = _app("History & Reports")
     assert not at.exception
+    at.selectbox(key="history_report_run").set_value(at.dataframe[0].value["run id"].iloc[0]).run()
     assert CSV_SAFETY_WARNING in [w.value for w in at.warning]
     assert len(at.dataframe) == 2                                      # results, then parameters
     assert set(HISTORY_PARAMETER_COLUMNS) <= set(at.dataframe[1].value.columns)

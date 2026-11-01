@@ -186,7 +186,7 @@ def test_data_and_history_pages_still_render():
     data = _app("Data")
     assert not data.exception and [h.value for h in data.header] == ["Data"]
     history = _app("History & Reports")
-    assert not history.exception and any("No reports registered yet" in m for m in _messages(history)["info"])
+    assert not history.exception and any("No runs saved yet" in m for m in _messages(history)["info"])
 
 
 def test_clusters_page_with_valid_data():
@@ -322,12 +322,11 @@ def _button_keys(at):
     return [b.key for b in at.button]
 
 
-def test_history_page_empty_state_and_reports_placeholder(isolated_history_db):
+def test_history_page_empty_state(isolated_history_db):
     at = _app("History & Reports")
     assert not at.exception
     info = _messages(at)["info"]
     assert any("No runs saved yet" in m for m in info)
-    assert any("No reports registered yet" in m for m in info)
     assert not isolated_history_db.exists()                                 # reading never creates it
 
 
@@ -467,6 +466,7 @@ def test_history_lists_reports_and_offers_downloads(isolated_reports_dir):
     history = _app("History & Reports")
     assert not history.exception
     assert history.dataframe[0].value["reports"].tolist() == ["3 file(s)"]
+    history.selectbox(key="history_report_run").set_value(history.dataframe[0].value["run id"].iloc[0]).run()
     assert _downloads(history) == ["Download incidents.csv", "Download clusters.csv", "Download report.pdf"]
     captions = " ".join(_messages(history)["caption"])
     assert "cannot be regenerated" in captions and "still exist" in captions
@@ -479,6 +479,7 @@ def test_history_flags_missing_report_files(isolated_reports_dir):
     run_id = at.session_state[CACHE_KEY]["saved_run_id"]
     (isolated_reports_dir / run_id / "report.pdf").unlink()
     history = _app("History & Reports")
+    history.selectbox(key="history_report_run").set_value(run_id).run()
     assert not history.exception
     assert _downloads(history) == ["Download incidents.csv", "Download clusters.csv"]
     assert any(f"Missing file: {run_id}/report.pdf" in w for w in _messages(history)["warning"])
@@ -489,5 +490,6 @@ def test_runs_without_reports_are_not_offered_for_regeneration_in_history(isolat
     history = _app("History & Reports")
     assert not history.exception
     assert history.dataframe[0].value["reports"].tolist() == ["none"]
+    history.selectbox(key="history_report_run").set_value(history.dataframe[0].value["run id"].iloc[0]).run()
     assert any("No reports registered yet" in m for m in _messages(history)["info"])
     assert "generate_reports" not in _button_keys(history) and _downloads(history) == []

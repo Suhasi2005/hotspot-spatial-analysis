@@ -45,7 +45,7 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
-from modules.ui_components import dataset_bar, empty_state, kpi_grid, kpi_strip, page_header, page_link, panel
+from modules.ui_components import dataset_bar, empty_state, kpi_grid, page_header, page_link, panel
 from modules.ui_theme import (
     ACCENT,
     CHART_SECONDARY,
@@ -55,11 +55,15 @@ from modules.ui_theme import (
     FILTERS_KEY,
     FINDING_PREFIX,
     MOBILE_ONLY_KEY,
+    HISTORY_DETAIL_KPI_KEY,
+    HISTORY_KPI_KEY,
     SUMMARY_DENSITY_KPI_KEY,
     SUMMARY_FINDINGS_KEY,
     SUMMARY_KPI_KEY,
     SURFACE,
+    SUCCESS,
     TEXT_PRIMARY,
+    WARNING,
     bar_chart_layout,
     plotly_template,
 )
@@ -89,6 +93,13 @@ DOMINANT_MAP_HEIGHT_PX = 620
 SUMMARY_DENSITY_RATIO = (3, 2)
 SUMMARY_MAP_HEIGHT_PX = 520
 SUMMARY_DENSITY_MAP_HEIGHT_PX = 420
+HISTORY_DETAIL_RATIO = (3, 2)
+REPORT_NOTICE_KEY = "history_report_notice"     # run id whose reports were generated in the last run
+REPORT_STATUS_COLOURS = {"Available": "green", "Ready to generate": "blue", "Not generated": "gray",
+                         "Partly available": "orange", "Files missing": "red"}
+REPORT_FILES_NOTE = "Writes incidents.csv, clusters.csv and report.pdf once for this saved run."
+HISTORY_STORAGE_NOTE = ("The history stores these parameters and totals, not the incident rows or per-cluster "
+                        "results. To see the maps again, load the same data and enter these parameters.")
 FINDINGS_NOTE = ("These findings describe this dataset with these parameters only. They do not show statistical "
                  "significance or predict future incidents.")
 
@@ -111,8 +122,8 @@ INCIDENT_MAP_HEIGHT_PX = 560
 TABLE_SCROLL_HINT = "On narrow screens, scroll this table sideways to see every column."
 # The History frame keeps every column; these lists only choose what each table displays.
 # Run ID sits with the parameters so the results table fits a laptop without sideways scrolling.
-HISTORY_RESULT_COLUMNS = ("saved (UTC)", "source", "accepted / total rows", "status", "reports",
-                          "clusters", "candidate hotspots", "noise incidents")
+HISTORY_RESULT_COLUMNS = ("analysis id", "source", "saved (UTC)", "accepted / total rows", "clusters",
+                          "candidate hotspots", "noise incidents", "status", "actions", "reports")
 HISTORY_PARAMETER_COLUMNS = ("saved (UTC)", "run id", "eps_m", "min_samples", "min_incidents", "bandwidth_m",
                              "grid_cell_m", "high_density_quantile")
 
@@ -128,11 +139,12 @@ PAGE_INFO: dict[str, tuple[str, str, str, str]] = {
     "Summary": ("Summary", ":material/insights:", "summary",
                 "A summary of the current completed spatial analysis: where incidents gather, and how the methods compare."),
     "History & Reports": ("History & Reports", ":material/history:", "history",
-                          "Access saved analyses and generated reports."),
+                          "Revisit saved spatial analyses and access their reports."),
 }
 
 
-PAGE_HEADINGS = {"Summary": "Spatial Analysis Overview"}     # where the title differs from the page name
+# Where the title differs from the page name.
+PAGE_HEADINGS = {"Summary": "Spatial Analysis Overview", "History & Reports": "Analysis History & Reports"}
 
 
 def render_page(name: str) -> None:
@@ -898,7 +910,8 @@ def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None
     if results.get("saved_run_id"):
         st.success(f"This analysis is saved in the history as run {results['saved_run_id']}.")
     else:
-        if not st.button("Save this run to history", key="save_run", type="primary"):
+        slot = st.empty()                          # lets the button go as soon as it has done its job
+        if not slot.button("Save this run to history", key="save_run", type="primary"):
             return
         try:
             run = record_run(dataset, results["config"], results["clusters"], results["density"],
@@ -906,6 +919,7 @@ def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None
         except (sqlite3.Error, OSError, ValueError, AnalysisError) as exc:
             st.error(f"Could not save the run: {exc}")
             return
+        slot.empty()
         results["saved_run_id"] = run.run_id
         results["saved_run"] = run
         st.success(f"Saved to the history as run {run.run_id}.")
@@ -921,17 +935,33 @@ def _render_report_section(results: dict[str, Any]) -> None:
     st.warning(CSV_SAFETY_WARNING)
     paths = results.get("report_paths")
     if paths is None:
-        if not st.button("Generate reports", key="generate_reports", type="primary"):
-            st.caption("Writes incidents.csv, clusters.csv and report.pdf once for this saved run.")
+        if not _report_button(results, "generate_reports"):
             return
-        try:
-            paths = generate_reports(results["saved_run"], HISTORY_REPORTS_DIR, db_path=HISTORY_DB_PATH)
-        except (sqlite3.Error, OSError, ValueError, LookupError, AnalysisError) as exc:
-            st.error(f"Could not generate reports: {exc}")
-            return
-        results["report_paths"] = paths
+        paths = results["report_paths"]
         st.success("Reports generated for this run.")
     _download_buttons(paths, "summary")
+
+
+def _report_button(results: dict[str, Any], key: str) -> bool:
+    """Generate reports for the run saved from this cache entry; True once they exist.
+
+    On failure the button stays so the user can retry. generate_reports leaves
+    nothing behind after a failure.
+    """
+    slot = st.empty()                              # lets the button go as soon as it has done its job
+    if not slot.button("Generate reports", key=key, type="primary"):
+        st.caption(REPORT_FILES_NOTE)
+        return False
+    try:
+        with st.spinner("Generating reports…"):
+            paths = generate_reports(results["saved_run"], HISTORY_REPORTS_DIR, db_path=HISTORY_DB_PATH)
+    except (sqlite3.Error, OSError, ValueError, LookupError, AnalysisError) as exc:
+        st.error(f"Could not generate reports: {exc}")
+        st.caption("No reports were saved for this attempt. Fix the problem above, then try again.")
+        return False
+    slot.empty()
+    results["report_paths"] = paths
+    return True
 
 
 def _download_buttons(paths: list[Path], key_prefix: str) -> None:
@@ -948,56 +978,161 @@ def _download_buttons(paths: list[Path], key_prefix: str) -> None:
 
 def _render_history_page() -> None:
     _page_header("History & Reports")
-    st.subheader("Saved runs")
     try:
         runs = list_runs(HISTORY_LIMIT, db_path=HISTORY_DB_PATH)
     except (sqlite3.Error, OSError, ValueError) as exc:
         st.error(f"Could not read the run history: {exc}")
-        runs = None
-    if runs == []:
-        empty_state("no_runs", ":material/history:", "No saved runs yet",
+        return
+    if not runs:
+        empty_state("no_runs", ":material/history:", "No saved analyses yet",
                     "No runs saved yet. Run an analysis and use 'Save this run to history' on the Summary page.",
                     link=("Summary", "Go to Summary"))
-    elif runs:
-        kpi_strip([
-            ("Saved runs", f"{len(runs)}{'+' if len(runs) == HISTORY_LIMIT else ''}"),
-            ("Runs with reports", str(sum(1 for r in runs if r["report_paths"]))),
-        ])
-        table = pd.DataFrame([_history_row(r) for r in runs])
-        with panel("runs"):
-            st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
-            st.dataframe(table, hide_index=True, width="stretch", column_order=HISTORY_RESULT_COLUMNS,
-                         column_config=_history_column_config())
-            st.caption(TABLE_SCROLL_HINT)
-            with st.expander("Analysis parameters for each run", icon=":material/tune:"):
-                st.dataframe(table, hide_index=True, width="stretch", column_order=HISTORY_PARAMETER_COLUMNS,
-                             column_config=_history_column_config())
-
-    st.subheader("Reports")
-    st.caption(
-        "Reports are generated on the Summary page for a run saved in this session. Runs from earlier "
-        "sessions cannot be regenerated, because the history stores parameters, not results; their reports "
-        "can be downloaded here only if they were registered and the files still exist."
-    )
-    with_reports = [r for r in runs or [] if r["report_paths"]]
-    if not with_reports:
-        empty_state("no_reports", ":material/description:", "No reports yet",
-                    "No reports registered yet. Save a run on the Summary page, then choose Generate reports.",
-                    link=("Summary", "Go to Summary") if runs else None)
         return
-    labels = {r["run_id"]: _run_label(r) for r in with_reports}
-    with panel("reports"):
+    files = {r["run_id"]: _report_files(r)[0] for r in runs}
+    available = sum(path.exists() for paths in files.values() for path in paths)
+    more = "+" if len(runs) == HISTORY_LIMIT else ""
+    kpi_grid([
+        ("Saved analyses", f"{len(runs)}{more}"),
+        ("Latest analysis (UTC)", runs[0]["created_at"][:10]),
+        ("Analyses with reports", f"{sum(1 for r in runs if r['report_paths'])}{more}"),
+        ("Report files available", f"{available}{more}"),
+    ], HISTORY_KPI_KEY)
+
+    table = pd.DataFrame([_history_row(r, _history_actions(r, files[r["run_id"]])) for r in runs])
+    with panel("runs"):
+        st.subheader("Saved analyses")
+        st.caption(f"Newest first; showing up to {HISTORY_LIMIT}. Times are UTC.")
+        st.dataframe(table.style.map(_history_cell_colour), hide_index=True, width="stretch",
+                     column_order=HISTORY_RESULT_COLUMNS, column_config=_history_column_config())
+        st.caption(TABLE_SCROLL_HINT)
+        with st.expander("Analysis parameters for each run", icon=":material/tune:"):
+            st.dataframe(table, hide_index=True, width="stretch", column_order=HISTORY_PARAMETER_COLUMNS,
+                         column_config=_history_column_config())
+        labels = {r["run_id"]: _run_label(r) for r in runs}
+        chosen = st.selectbox("Saved analysis", list(labels), index=None, format_func=labels.get,
+                              placeholder="Choose a saved analysis", key="history_report_run")
+    if chosen is None:
+        empty_state("no_selection", ":material/touch_app:", "No analysis selected",
+                    "Choose a saved analysis above to see its details and reports.")
+        return
+    run = next(r for r in runs if r["run_id"] == chosen)
+    details_col, reports_col = st.columns(HISTORY_DETAIL_RATIO, gap="small")
+    with details_col, panel("run_details", height="stretch"):
+        _render_run_details(run)
+    with reports_col, panel("run_reports", height="stretch"):
+        _render_run_reports(run)
+
+
+def _render_run_details(run: dict[str, Any]) -> None:
+    """Everything the history stored for one run. Nothing is re-analysed."""
+    c = run["config"]
+    row = _history_row(run)
+    st.subheader(f"Analysis {run['run_id'][:8]}")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.markdown(f":material/description: **{escape_markdown(run['source_name'])}**", width="content")
+        st.badge(row["status"].capitalize(), color="green" if run["valid_rows"] > 0 else "orange")
+    st.caption(f"Saved {row['saved (UTC)']} UTC · Run ID {run['run_id']}")
+    if is_synthetic_source(run["source_name"]):
+        st.info(SYNTHETIC_NOTICE, icon=":material/science:")
+    kpi_grid([
+        ("Rows in file", f"{run['total_rows']:,}"),
+        ("Accepted", f"{run['valid_rows']:,}"),
+        ("Rejected", f"{run['total_rows'] - run['valid_rows']:,}"),
+        ("Clusters", str(row["clusters"])),
+        ("Candidate hotspots", str(row["candidate hotspots"])),
+        ("Noise incidents", str(row["noise incidents"])),
+    ], HISTORY_DETAIL_KPI_KEY)
+    dbscan_col, kde_col = st.columns(2, gap="small")
+    with dbscan_col:
+        st.markdown("**DBSCAN parameters**")
+        st.markdown(f"- Eps: {c.dbscan.eps_m:g} m\n- Min samples: {c.dbscan.min_samples}\n"
+                    f"- Candidate hotspot size: at least {c.hotspot.min_incidents:,} incidents")
+    with kde_col:
+        st.markdown("**KDE parameters**")
+        st.markdown(f"- Bandwidth: {c.kde.bandwidth_m:g} m\n- Kernel: {c.kde.kernel}\n"
+                    f"- Grid cell: {c.kde.grid_cell_m:g} m\n- High-density quantile: {c.kde.high_density_quantile:g}")
+    if c.study_area is not None:
+        st.caption(f"Study area: {escape_markdown(c.study_area.name)}")
+    st.caption(HISTORY_STORAGE_NOTE)
+
+
+def _render_run_reports(run: dict[str, Any]) -> None:
+    """The reports of one run; generating here uses the same step as the Summary page."""
+    st.subheader("Reports")
+    entry = _session_entry(run)
+    resolved, errors = _report_files(run)
+    status = report_status(run, resolved, entry is not None)
+    st.badge(status, color=REPORT_STATUS_COLOURS[status])
+    if st.session_state.pop(REPORT_NOTICE_KEY, None) == run["run_id"]:
+        st.success("Reports generated for this run.")
+    for message in errors:
+        st.error(message)
+    if run["report_paths"]:
         st.warning(CSV_SAFETY_WARNING)
-        chosen = st.selectbox("Run", list(labels), format_func=labels.get, key="history_report_run")
-        row = next(r for r in with_reports if r["run_id"] == chosen)
-        resolved = []
-        for stored in row["report_paths"]:
-            try:
-                resolved.append(resolve_report_path(stored, HISTORY_REPORTS_DIR))
-            except ValueError as exc:
-                st.error(f"Invalid stored report path: {exc}")
         with st.container(horizontal=True, wrap=True):
             _download_buttons(resolved, "history")
+    elif entry is not None:
+        if _report_button(entry, "history_generate_reports"):
+            st.session_state[REPORT_NOTICE_KEY] = run["run_id"]
+            st.rerun()                                     # the table and KPIs above need the new reports
+    else:
+        empty_state("no_reports", ":material/description:", "No reports for this analysis",
+                    "No reports registered yet. To get them, run the same data and parameters on the Summary page, "
+                    "save that run, then choose Generate reports.",
+                    link=("Summary", "Go to Summary"))
+    st.caption(
+        "Reports can be generated only while a saved run's results are still in this session, which ends "
+        "when the parameters or dataset change. Other runs cannot be regenerated, because the history "
+        "stores parameters, not results; their reports can be downloaded here only if they were "
+        "registered and the files still exist."
+    )
+
+
+def _report_files(run: dict[str, Any]) -> tuple[list[Path], list[str]]:
+    """Absolute paths of a run's registered reports, plus a message for each invalid stored path."""
+    resolved, errors = [], []
+    for stored in run["report_paths"] or []:
+        try:
+            resolved.append(resolve_report_path(stored, HISTORY_REPORTS_DIR))
+        except ValueError as exc:
+            errors.append(f"Invalid stored report path: {exc}")
+    return resolved, errors
+
+
+def _session_entry(run: dict[str, Any]) -> dict[str, Any] | None:
+    """The cached analysis behind a run saved in this session; only that one can still make reports."""
+    cached = st.session_state.get(CACHE_KEY)
+    if cached is None or cached.get("saved_run_id") != run["run_id"]:
+        return None
+    return cached
+
+
+def report_status(run: dict[str, Any], files: list[Path], can_generate: bool) -> str:
+    """Report state from what is really registered and on disk."""
+    registered = len(run["report_paths"] or [])
+    if not registered:
+        return "Ready to generate" if can_generate else "Not generated"
+    present = sum(path.exists() for path in files)
+    if present == registered:
+        return "Available"
+    return "Partly available" if present else "Files missing"
+
+
+def _history_actions(run: dict[str, Any], files: list[Path]) -> str:
+    if any(path.exists() for path in files):
+        return "View, download"
+    if not run["report_paths"] and _session_entry(run) is not None:
+        return "View, generate"
+    return "View"
+
+
+def _history_cell_colour(value: Any) -> str:
+    """Status colour for the runs table; the text itself always states the status."""
+    if value == "complete":
+        return f"color: {SUCCESS}"
+    if isinstance(value, str) and value.startswith("unusable"):
+        return f"color: {WARNING}"
+    return ""
 
 
 def _run_label(run: dict[str, Any]) -> str:
@@ -1009,16 +1144,18 @@ def _history_column_config() -> dict[str, Any]:
     """Readable headings for the History tables; counts are right-aligned, text left."""
     text, number = st.column_config.TextColumn, st.column_config.NumberColumn
     return {
-        "saved (UTC)": text("Saved (UTC)", width=140),
+        "saved (UTC)": text("Saved (UTC)", width=136),
+        "analysis id": text("Analysis ID", width=84, help="The start of the run ID; the full ID is in the details"),
+        "actions": text("Actions", width=110, help="View: choose this analysis below to see its details"),
         "run id": text("Run ID", width=90, help="Select the cell to read the full ID"),
-        "source": text("Source", width=130),
-        "accepted / total rows": text("Accepted / Total", width=110, alignment="right",
+        "source": text("Source", width=128),
+        "accepted / total rows": text("Accepted", width=76, alignment="right",
                                       help="Accepted rows out of all rows in the file"),
-        "status": text("Status", width=90),
+        "status": text("Status", width=78),
         "reports": text("Reports", width=70),
-        "clusters": text("Clusters", width=70, alignment="right"),
-        "candidate hotspots": text("Candidate Hotspots", width=130, alignment="right"),
-        "noise incidents": text("Noise", width=60, alignment="right", help="Noise incidents"),
+        "clusters": text("Clusters", width=60, alignment="right"),
+        "candidate hotspots": text("Cand. Hotspots", width=98, alignment="right", help="Candidate hotspots (size rule)"),
+        "noise incidents": text("Noise", width=50, alignment="right", help="Noise incidents"),
         "eps_m": number("Eps (m)"),
         "min_samples": number("Min Samples"),
         "min_incidents": number("Min Incidents"),
@@ -1028,11 +1165,13 @@ def _history_column_config() -> dict[str, Any]:
     }
 
 
-def _history_row(run: dict[str, Any]) -> dict[str, Any]:
+def _history_row(run: dict[str, Any], actions: str = "View") -> dict[str, Any]:
     c = run["config"]
     usable = run["valid_rows"] > 0
     return {
         "saved (UTC)": run["created_at"].replace("T", " ")[:19],
+        "analysis id": run["run_id"][:8],
+        "actions": actions,
         "run id": run["run_id"],
         "source": run["source_name"],
         "accepted / total rows": f"{run['valid_rows']:,} / {run['total_rows']:,}",

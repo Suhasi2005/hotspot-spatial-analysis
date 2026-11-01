@@ -34,7 +34,9 @@ from modules.data_manager import list_sample_datasets
 from modules.data_validator import summarize_quality
 from modules.map_visualization import (
     DENSITY_LEGEND,
+    DENSITY_COLOUR_NOTE,
     DENSITY_SCALE_NOTE,
+    DENSITY_SMOOTHING_NOTE,
     DENSITY_TRANSPARENT_BELOW,
     MAX_MAP_POINTS,
     build_cluster_map,
@@ -49,6 +51,7 @@ from modules.ui_theme import (
     CHART_SECONDARY,
     CLUSTER_KPI_KEY,
     DATA_KPI_KEY,
+    DENSITY_KPI_KEY,
     FILTERS_KEY,
     MOBILE_ONLY_KEY,
     SUMMARY_KPI_KEY,
@@ -78,9 +81,8 @@ REPORT_MIME = {".csv": "text/csv", ".pdf": "application/pdf"}
 FILTERS_LABEL = "Display filters — visualization only; analysis results remain unchanged."
 KDE_DISCLAIMER = ("KDE values are relative density scores. They are not incident counts or "
                   "incidents per square kilometre.")
-MAP_PANEL_RATIO = (2, 1)          # map : explanation panel on the Density page
-CLUSTER_PANEL_RATIO = (5, 2)      # the map is the main element of the Clusters page
-CLUSTER_MAP_HEIGHT_PX = 620
+MAP_DOMINANT_RATIO = (5, 2)       # the map is the main element of the Clusters and Density pages
+DOMINANT_MAP_HEIGHT_PX = 620
 
 # --- Summary page (Stage 10B Phase 4.3) ---------------------------------------------------
 SUMMARY_TABS = ("Method Comparison", "Distributions", "Notes & Limitations")
@@ -147,7 +149,7 @@ def _render_page_body(name: str) -> None:
         st.info("Not implemented yet — see docs/development_plan.md for the stage that builds this page.")
         return
 
-    config = _sidebar_config()
+    config = _sidebar_config(expanded=name == "Density (KDE)")     # bandwidth is this page's main control
     _page_header(name)
     dataset = st.session_state.get(DATASET_KEY)
     if dataset is None:
@@ -310,10 +312,10 @@ def escape_markdown(text: str) -> str:
 # --- analysis lifecycle ----------------------------------------------------------------
 
 
-def _sidebar_config() -> AnalysisConfig | None:
+def _sidebar_config(expanded: bool = False) -> AnalysisConfig | None:
     """Analysis parameters from the sidebar; defaults from config; validated by the dataclasses."""
     d = DEFAULT_ANALYSIS_CONFIG
-    sb = st.sidebar.expander("Analysis parameters", icon=":material/tune:")
+    sb = st.sidebar.expander("Analysis parameters", expanded=expanded, icon=":material/tune:")
     sb.caption("Changing these re-runs DBSCAN and KDE on all accepted incidents.")
     eps_m = sb.number_input("DBSCAN eps_m (metres)", value=float(d.dbscan.eps_m), step=50.0, key="p_eps_m")
     min_samples = sb.number_input("DBSCAN min_samples", value=int(d.dbscan.min_samples), step=1, key="p_min_samples")
@@ -400,7 +402,7 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
     show_noise = filters.checkbox("Show noise points", value=True, key="f_show_noise")
     candidates_only = filters.checkbox("Candidate hotspots only", value=False, key="f_candidates_only")
 
-    map_col, info_col = st.columns(CLUSTER_PANEL_RATIO, gap="small")
+    map_col, info_col = st.columns(MAP_DOMINANT_RATIO, gap="small")
     with info_col:                                 # drawn first: its selector decides what the map shows
         chosen = _render_cluster_panel(clusters, results["config"])
     mask, visible = cluster_view(frame, severities, types, show_noise, chosen, candidates, candidates_only)
@@ -417,7 +419,7 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
             st.caption(f"Showing {shown:,} of {len(frame):,} accepted incidents under the current display filters.")
         st_folium(
             build_cluster_map(clusters, MAX_MAP_POINTS, mask, visible),
-            height=CLUSTER_MAP_HEIGHT_PX, use_container_width=True, returned_objects=[], key="cluster_map",
+            height=DOMINANT_MAP_HEIGHT_PX, use_container_width=True, returned_objects=[], key="cluster_map",
         )
 
     if not clusters.clusters:
@@ -526,47 +528,61 @@ def _category_filter(container, frame: pd.DataFrame, column: str, label: str) ->
 # --- Density page -----------------------------------------------------------------------
 
 
+def _density_controls_hint() -> None:
+    with st.container(key=MOBILE_ONLY_KEY):
+        st.caption("Bandwidth and the other parameters are in the side menu: open it with » at the top left.")
+
+
 def _render_density_page(results: dict[str, Any]) -> None:
     if results["density_error"]:
         st.error(f"KDE did not run: {results['density_error']}")
+        _density_controls_hint()
         return
     density = results["density"]
     p = density.params
-    kpi_strip([
+    kpi_grid([
         ("Incidents used", f"{p['n_points']:,}"),
         ("Grid cells", f"{density.density.shape[0]} × {density.density.shape[1]}"),
         ("Bandwidth", f"{p['bandwidth_m']:g} m"),
         ("Analysis status", analysis_status(results)),
-    ])
-    map_col, info_col = st.columns(MAP_PANEL_RATIO, gap="medium")
+        ("Peak relative score", f"{density.density.max():.4g}"),   # the widest value; gets its own row on phones
+    ], DENSITY_KPI_KEY)
+    map_col, info_col = st.columns(MAP_DOMINANT_RATIO, gap="small")
     with map_col:
-        st.caption("KDE surface computed from all accepted incidents, drawn grid cell by grid cell. "
+        st_folium(build_density_map(density), height=DOMINANT_MAP_HEIGHT_PX, use_container_width=True,
+                  returned_objects=[], key="density_map")
+        _density_controls_hint()
+        st.caption(f"KDE surface computed from all accepted incidents. {DENSITY_SMOOTHING_NOTE} "
                    "Display filters do not apply here.")
-        st_folium(build_density_map(density), height=520, use_container_width=True, returned_objects=[],
-                  key="density_map")
     with info_col, panel("density_info"):
-        st.markdown("**How to read this map**")
+        st.markdown("#### :material/blur_on: Reading this map")
         st.info(KDE_DISCLAIMER, icon=":material/info:")
         st.markdown(
-            "- **KDE** spreads each incident over its surroundings with a smooth kernel and adds them up.\n"
-            f"- **Bandwidth ({p['bandwidth_m']:g} m):** how far each incident spreads; larger values give a "
-            "smoother surface.\n"
-            f"- **Grid cell ({p['grid_cell_m']:g} m):** the size of each coloured square.\n"
-            "- **Relative scores:** compare cells within this map only."
+            "- **What it shows:** KDE spreads each incident over its surroundings with a smooth kernel and adds "
+            "them up, so colour shows where incidents concentrate.\n"
+            "- **High areas:** more incidents lie close together there, compared with the rest of this map."
+        )
+        st.markdown(
+            "**Density and DBSCAN clusters differ.** KDE gives a continuous surface with no boundaries or noise. "
+            "DBSCAN sorts incidents into separate clusters. A hot area here is not automatically a cluster."
         )
         st.markdown(
             f"**High-density layer** (switch on in the map's layer control): cells with density ≥ the "
             f"{p['high_density_quantile']:.0%} quantile of this grid. This is relative to this analysis and grid "
             "extent only; it is not statistically significant risk."
         )
-    st.markdown(
-        f"- **Colour scale:** {DENSITY_LEGEND} {DENSITY_SCALE_NOTE} Cells below {DENSITY_TRANSPARENT_BELOW:.0%} "
-        "of the grid maximum are drawn transparent so the basemap stays visible; the values themselves are unchanged.\n"
-        "- Values depend on the bandwidth and the grid extent, so they are not comparable across runs with "
-        "different settings or data.\n"
-        "- Each cell shows the estimate at its centre node; the grid is approximately square and is placed on "
-        "the Web Mercator basemap row by row."
-    )
+        with st.expander("More about this map", icon=":material/help:"):
+            st.markdown(
+                f"- **Colour scale:** {DENSITY_LEGEND} {DENSITY_SCALE_NOTE} {DENSITY_COLOUR_NOTE} Cells below "
+                f"{DENSITY_TRANSPARENT_BELOW:.0%} of the grid maximum are drawn transparent so the basemap stays visible; "
+                "the values themselves are unchanged.\n"
+                f"- **Bandwidth ({p['bandwidth_m']:g} m):** how far each incident spreads; larger values give a smoother surface.\n"
+                f"- **Grid cell ({p['grid_cell_m']:g} m):** the spacing of the estimates behind the smoothed surface.\n"
+                "- Values depend on the bandwidth and the grid extent, so they are not comparable across runs with "
+                "different settings or data.\n"
+                "- Each cell shows the estimate at its centre node; the grid is approximately square and is placed on "
+                "the Web Mercator basemap row by row."
+            )
     ext = p["grid_extent"]
     params_table = pd.DataFrame(
         [

@@ -153,6 +153,7 @@ def test_max_points_caps_markers_in_file_order():
 
 import copy  # noqa: E402
 import json  # noqa: E402
+import html as html_module  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -165,7 +166,6 @@ from modules.map_visualization import (  # noqa: E402
     CANDIDATE_TOOLTIP,
     CLUSTER_PALETTE,
     DENSITY_LEGEND,
-    DENSITY_LEGEND_WIDTH_PX,
     NOISE_COLOR,
     THRESHOLD_LAYER_NAME,
     THRESHOLD_RGBA,
@@ -346,7 +346,7 @@ def test_small_extent_overlay_is_the_grid_flipped_north_up():
     assert np.array_equal(mask[..., 3] > 0, expected)
     assert tuple(mask[0, 3]) == THRESHOLD_RGBA                        # north-east cell is at top-right
     colour = density_overlay_rgba(d)
-    assert tuple(colour[0, 3, :3]) == (0xBD, 0x00, 0x26)              # grid max -> darkest colour, top-right
+    assert tuple(colour[0, 3, :3]) == (0xF0, 0x45, 0x3A)              # grid max -> hottest colour, top-right
     assert colour[2, 0, 3] == 0                                       # value 0 (south-west) -> transparent
 
 
@@ -368,7 +368,7 @@ def test_large_extent_overlay_rows_are_placed_in_web_mercator():
     assert all(abs(c - grid_lat[i]) <= 5.0 for c, i in zip(centres, expected_rows))   # inside that cell
     assert expected_rows != list(range(6, -1, -1))                   # a plain flip would put rows elsewhere
 
-    # The green channel falls strictly as the value rises, so it identifies the grid row drawn.
+    # The green channel differs for each of these values, so it identifies the grid row drawn.
     green_by_value = {}
     for i in range(7):
         probe = _density([0.0], [0.0, 10.0], [[float(i), 6.0]], 0.0, extra_params={"lat_step_deg": 10.0})
@@ -390,7 +390,7 @@ def test_transparency_changes_rendering_only():
     d = _density([23.0], [72.50, 72.51, 72.52], values, 50.0, extra_params={"lat_step_deg": 0.01})
     before = d.density.copy()
     alpha = density_overlay_rgba(d)[..., 3]
-    assert alpha.tolist() == [[0, 0, 166]]                            # 0 and 0.5% of max hidden; max shown
+    assert alpha.tolist() == [[0, 0, 230]]                            # 0 and 0.5% of max hidden; max shown
     assert np.array_equal(d.density, before)
 
 
@@ -402,13 +402,11 @@ def test_density_map_layers_legend_and_no_heatmap():
     assert overlays[1].show is False and overlays[0].show is True
     assert any(type(c).__name__ == "LayerControl" for c in fmap._children.values())
     assert not any("HeatMap" in type(c).__name__ for c in fmap._children.values())
-    legends = [c for c in fmap._children.values() if type(c).__name__ == "LinearColormap"]
-    assert len(legends) == 1 and legends[0].caption == DENSITY_LEGEND
-    assert legends[0].width == DENSITY_LEGEND_WIDTH_PX > 450              # wide enough for the full caption
+    assert sum(type(c).__name__ == "MapLegend" for c in fmap._children.values()) == 1
     assert DENSITY_LEGEND.startswith("Relative density score — not incident counts or incidents/km²")
     html = fmap.get_root().render()
     # The caption is HTML-safe JSON inside the script (e.g. —, ², and ' as ').
-    assert json.dumps(DENSITY_LEGEND)[1:-1].replace("'", "\\u0027") in html
+    assert json.dumps(html_module.escape(DENSITY_LEGEND))[1:-1].replace("&", "\\u0026").replace("'", "\\u0027") in html
     assert "relative to this analysis and grid only" in THRESHOLD_LAYER_NAME
     assert "significan" not in THRESHOLD_LAYER_NAME
 
@@ -419,7 +417,7 @@ def test_real_kde_peak_is_drawn_where_the_incidents_are():
     density = run_kde(dataset, KDEParams(bandwidth_m=300, grid_cell_m=100))
     image = density_overlay_rgba(density)
     (south, west), (north, east) = density_overlay_bounds(density)
-    row, col = np.unravel_index(np.argmax(image[..., 1] == image[..., 1].min()), image.shape[:2])  # darkest = max
+    row, col = np.unravel_index(np.argmax(image[..., 3]), image.shape[:2])    # most opaque = max
     peak_i, peak_j = np.unravel_index(np.argmax(density.density), density.density.shape)
     assert col == peak_j and row == density.density.shape[0] - 1 - peak_i
     lat_at_row = north - (row + 0.5) * (north - south) / image.shape[0]
@@ -475,17 +473,3 @@ def test_layer_controls_start_collapsed_and_avoid_the_legend():
         assert controls[0].options["collapsed"] is True and controls[0].options["position"] == "topright"
         assert '"zoomControl": false' in fmap.get_root().render() or "zoomControl: false" in fmap.get_root().render()
         assert "bottomleft" in fmap.get_root().render()
-
-
-def test_density_legend_fits_narrow_maps_without_changing_the_scale():
-    """Stage 10B Phase 3.2: the legend re-fits to the map width; colours and caption unchanged."""
-    values = np.arange(12, dtype="float64").reshape(3, 4)
-    fmap = build_density_map(_density([23.00, 23.01, 23.02], [72.50, 72.51, 72.52, 72.53], values, 6.0))
-    children = list(fmap._children.values())
-    names = [type(c).__name__ for c in children]
-    assert names.index("_ResponsiveLegend") > names.index("LinearColormap")   # script runs after the legend
-    legend = children[names.index("LinearColormap")]
-    assert legend.width == DENSITY_LEGEND_WIDTH_PX and legend.caption == DENSITY_LEGEND
-    html = fmap.get_root().render()
-    assert f"Math.min({DENSITY_LEGEND_WIDTH_PX}, map.getContainer().clientWidth - 20)" in html
-    assert 'map.on("resize", fit)' in html

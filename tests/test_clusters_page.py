@@ -99,7 +99,7 @@ def test_cluster_map_has_the_style_legend_and_layers():
                                   CLUSTER_LABEL_LAYER]
 
 
-def test_other_maps_are_not_changed_in_this_stage():
+def test_incident_map_is_not_changed():
     names = [type(c).__name__ for c in build_incident_map(_dataset())._children.values()]
     assert "DarkMapStyle" not in names and "MapLegend" not in names
 

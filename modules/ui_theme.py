@@ -55,6 +55,7 @@ CARD_HEADING_PX = 14              # h4
 CAPTION_PX = 12                   # Streamlit captions are 0.875rem = 12.25px at a 14px base
 HEADING_WEIGHT = 600
 METRIC_VALUE_PX = 28
+DENSITY_METRIC_VALUE_PX = 24       # five cards across, and the peak score is a long number
 
 # --- Surfaces, spacing and badges (Stage 10B Phase 4.2) ----------------------------------
 def _mix(colour: str, other: str, share: float) -> str:
@@ -129,6 +130,7 @@ _KPI_CSS = (
 SUMMARY_KPI_KEY = "summary_kpis"
 DATA_KPI_KEY = "data_kpis"
 CLUSTER_KPI_KEY = "cluster_kpis"
+DENSITY_KPI_KEY = "density_kpis"
 MOBILE_ONLY_KEY = "mobile_only"
 PANEL_PREFIX = "panel_"
 EMPTY_STATE_PREFIX = "empty_state_"
@@ -138,6 +140,13 @@ _SUMMARY_CSS = (
     f".st-key-{SUMMARY_KPI_KEY} > *, .st-key-{DATA_KPI_KEY} > *, .st-key-{CLUSTER_KPI_KEY} > * {{ "
     f"flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
+    # Five cards across on desktop; the odd card fills the last row on phones.
+    f".st-key-{DENSITY_KPI_KEY} > * {{ flex: 1 1 calc(20% - {SPACE_LG}px); max-width: 100%; min-width: 150px; }}\n"
+    f'.st-key-{DENSITY_KPI_KEY} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"] {{ '
+    f"font-size: {DENSITY_METRIC_VALUE_PX}px; }}\n"
+    # Compact on phones so the map comes sooner.
+    f"@media (max-width: {MOBILE_BREAKPOINT_PX - 1}px) {{ .st-key-{DENSITY_KPI_KEY} {_KPI} {{ min-height: 0; "
+    f"padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }} }}\n"
     f'[class*="st-key-{PANEL_PREFIX}"], '
     f'[class*="st-key-{EMPTY_STATE_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
     f"border-radius: {RADIUS_CARD_PX}px; box-shadow: {SHADOW_CARD}; padding: {SPACE_LG}px; }}\n"

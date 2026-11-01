@@ -391,7 +391,6 @@ Layout and wording only. DBSCAN, KDE, the summary, validation, parameters, map c
 ## Stage 10B responsive fix (charts and map controls)
 Rendering only; layers, layer names, colours and data are unchanged.
 - Cluster and density maps: the layer control starts collapsed in the top-right (`LAYER_CONTROL_POSITION`) and expands on hover or tap; zoom is bottom-left (`ZOOM_CONTROL_POSITION`). The incident map has a single layer and no layer control.
-- `DENSITY_LEGEND_WIDTH_PX` is 480 (the caption still fits) so the legend fits the two-thirds map at 1280 px. On narrower maps (phone width), `_ResponsiveLegend` re-fits the legend's own D3 scale to the map width, keeping the colours, the 0–1 domain, the ticks and the font size. If the caption doesn't fit, it wraps onto two lines at the dash. It runs again when the map is resized; wider maps keep the 480 px legend unchanged (Phase 3.2).
 - Cluster-size chart: a two-line title, the legend below the plot and automargins, so nothing is cut off or overlapping at 390 px.
 
 ## Stage 10B Phase 4.2 (design system and KPI cards)
@@ -437,9 +436,17 @@ Layout only. Validation, messages, counts, Source Row, the three tabs and the ma
 Display only. DBSCAN, labels, candidate rules, coordinates, validation and reports are unchanged.
 - **`map_theme.py`:** `DarkMapStyle` applies the dark styling from inside the map's iframe, and `MapLegend` adds a static legend control. It imports nothing from the app.
 - **Basemap:** the existing OpenStreetMap tiles, darkened with a CSS filter on the tile pane only, so no API key, service or dependency is added. CARTO's dark tiles are not used because they now require a key.
-- **`build_cluster_map`:** uses the dark style, light noise points (`NOISE_COLOR`), a white candidate outline and stronger circle and point fills. It adds a "Cluster labels" layer with a chip at each drawn centroid, and a legend counting exactly what is drawn. The initial view leaves room at the top so the legend covers no incident; panning can still move points under it. The incident and density maps are unchanged.
+- **`build_cluster_map`:** uses the dark style, light noise points (`NOISE_COLOR`), a white candidate outline and stronger circle and point fills. It adds a "Cluster labels" layer with a chip at each drawn centroid, and a legend counting exactly what is drawn. The initial view leaves room at the top so the legend covers no incident; panning can still move points under it. The incident map is unchanged.
 - **Page:** a KPI row, the map beside a cluster panel (`CLUSTER_PANEL_RATIO`), then the summaries. The panel has a display-only cluster selector, one row per cluster, and the method notes in an expander.
 - **`cluster_view`:** combines the display filters with the selector. The selector narrows clusters and leaves noise to its own switch; "Candidate hotspots only" keeps its meaning.
+
+## Stage 4 Density page
+Display only. KDE, the grid, parameters, defaults and the threshold calculation are unchanged.
+- **Colours:** `density_rgba` gives the colour of a score from 0 to 1, on a dark-to-hot ramp (`DENSITY_COLORS`) with opacity rising with the score, so low density stays dark. Position on the ramp is the square root of the score, so weaker concentrations stay visible beside a sharp peak; the page says so. This replaces the earlier linear colours and fixed opacity. The overlay and the legend both use it, so they cannot disagree.
+- **Smoothing:** the KDE layer is no longer drawn pixelated, so the browser smooths the image as it scales it. The grid and its values are unchanged. The threshold layer stays as crisp cells (`THRESHOLD_CELL_CLASS`), now in white so it stands apart from the ramp.
+- **Legend:** `_density_legend` is a `MapLegend` with a gradient bar, Low, Medium and High labels, `DENSITY_LEGEND` and the smoothing note. It replaces the earlier branca legend and its resize helper. The initial view keeps room for it.
+- **Page:** five KPIs, including the existing peak relative score, the map beside a compact panel (`MAP_DOMINANT_RATIO`), and the parameters. The panel explains density, high areas and how density differs from DBSCAN clusters. Further notes are in an expander.
+- **Controls:** the Analysis parameters expander starts open on this page. Keys and behaviour are unchanged.
 
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.

@@ -10,10 +10,7 @@ import html
 import math
 from typing import Any
 
-import branca.colormap as branca_cm
 import folium
-from branca.element import MacroElement
-from jinja2 import Template
 import numpy as np
 import pandas as pd
 from folium.features import DivIcon
@@ -27,7 +24,7 @@ from modules.contracts import (
     ClusterResult,
     DensityResult,
 )
-from modules.map_theme import CHIP_CLASS, DarkMapStyle, MapLegend
+from modules.map_theme import CHIP_CLASS, RAMP_CLASS, RAMP_LABELS_CLASS, DarkMapStyle, MapLegend
 # Reuse the Stage 6 validators instead of duplicating them (no change to that module).
 from modules.spatial_statistics import _check_cluster_result, _check_density
 
@@ -59,18 +56,27 @@ CANDIDATE_TOOLTIP = "Candidate hotspot — size rule only (not statistical signi
 # --- density map -----------------------------------------------------------------
 DENSITY_LEGEND = "Relative density score — not incident counts or incidents/km²."
 DENSITY_SCALE_NOTE = "Colours are scaled from 0 to 1 relative to this grid's maximum density score."
-DENSITY_LEGEND_WIDTH_PX = 480    # fits the caption and the 2/3-width map at 1280 px (Stage 10B fix)
 # Map controls (rendering only): layer controls start collapsed in the top-right corner,
 # where Leaflet stacks them under the density legend; zoom moves to the bottom-left so
 # neither overlaps the legend.
 LAYER_CONTROL_POSITION = "topright"
 ZOOM_CONTROL_POSITION = "bottomleft"
-DENSITY_COLORS: tuple[str, ...] = ("#ffffb2", "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026")
-DENSITY_OPACITY = 0.65
+# Dark-to-hot on the dark basemap: deep navy, blue, cyan, orange, red.
+DENSITY_COLORS: tuple[str, ...] = ("#0B2545", "#2878E5", "#08B8D4", "#F59E42", "#F0453A")
+# Position on the ramp is score ** COLOUR_GAMMA, so weaker concentrations stay visible beside a sharp peak.
+DENSITY_COLOUR_GAMMA = 0.5
+# Opacity rises with the score (alpha = MAX * score ** GAMMA), so low density stays dark.
+DENSITY_MAX_OPACITY = 0.9
+DENSITY_OPACITY_GAMMA = 0.3
+DENSITY_COLOUR_NOTE = "Colour changes fastest at low scores, so weaker concentrations stay visible beside a sharp peak."
+DENSITY_SMOOTHING_NOTE = "Smoothed for display; the grid values are unchanged."
+DENSITY_LEGEND_STOPS = 11
+DENSITY_LEGEND_ROOM_PX = 170     # top of the initial view kept clear of the legend
+THRESHOLD_CELL_CLASS = "hs-grid-cells"     # the threshold layer stays as crisp grid cells
 # Cells below this fraction of the grid maximum are drawn fully transparent so the
 # basemap stays visible. Rendering only: the stored density values are unchanged.
 DENSITY_TRANSPARENT_BELOW = 0.01
-THRESHOLD_RGBA = (49, 54, 149, 110)          # semi-transparent blue fill
+THRESHOLD_RGBA = (234, 242, 250, 130)        # semi-transparent white, distinct from the density colours
 THRESHOLD_LAYER_NAME = "High-density cells (≥ this run's quantile threshold — relative to this analysis and grid only)"
 MAX_MERCATOR_LAT = 85.05112878               # Web Mercator latitude limit
 
@@ -325,8 +331,8 @@ def density_overlay_rgba(result: DensityResult, threshold_mask: bool = False) ->
     centre, converted back to latitude, and filled from the nearest grid row
     (exact ties -> the southern row). Image height equals len(grid_lat).
 
-    Colour: density / grid maximum on DENSITY_COLORS, alpha DENSITY_OPACITY,
-    fully transparent below DENSITY_TRANSPARENT_BELOW of the maximum (all
+    Colour: density_rgba(density / grid maximum), fully transparent below
+    DENSITY_TRANSPARENT_BELOW of the maximum (all
     transparent if the maximum is 0). With threshold_mask=True the image instead
     marks cells with density >= high_density_threshold in THRESHOLD_RGBA.
     The DensityResult is not modified.
@@ -342,12 +348,34 @@ def density_overlay_rgba(result: DensityResult, threshold_mask: bool = False) ->
     if peak <= 0:
         return image
     scaled = grid / peak
-    stops = np.linspace(0.0, 1.0, len(DENSITY_COLORS))       # same stops as the legend colormap
-    rgb = np.array([[int(c[i:i + 2], 16) for i in (1, 3, 5)] for c in DENSITY_COLORS], dtype="float64")
-    for channel in range(3):
-        image[..., channel] = np.rint(np.interp(scaled, stops, rgb[:, channel])).astype(np.uint8)
-    image[..., 3] = np.where(scaled >= DENSITY_TRANSPARENT_BELOW, round(255 * DENSITY_OPACITY), 0)
+    image = density_rgba(scaled)
+    image[..., 3] = np.where(scaled >= DENSITY_TRANSPARENT_BELOW, image[..., 3], 0)
     return image
+
+
+def density_rgba(scaled: np.ndarray) -> np.ndarray:
+    """RGBA uint8 colours for scores in [0, 1]; the map and its legend both use this."""
+    scaled = np.asarray(scaled, dtype="float64")
+    stops = np.linspace(0.0, 1.0, len(DENSITY_COLORS))
+    rgb = np.array([[int(c[i:i + 2], 16) for i in (1, 3, 5)] for c in DENSITY_COLORS], dtype="float64")
+    image = np.zeros(scaled.shape + (4,), dtype=np.uint8)
+    for channel in range(3):
+        image[..., channel] = np.rint(np.interp(scaled ** DENSITY_COLOUR_GAMMA, stops, rgb[:, channel])).astype(np.uint8)
+    image[..., 3] = np.rint(255 * DENSITY_MAX_OPACITY * scaled ** DENSITY_OPACITY_GAMMA).astype(np.uint8)
+    return image
+
+
+def _density_legend() -> str:
+    """Gradient legend built from the map's own colours. Fixed text only."""
+    colours = []
+    for r, g, b, a in density_rgba(np.linspace(0.0, 1.0, DENSITY_LEGEND_STOPS)):
+        colours.append(f"rgba({r}, {g}, {b}, {a / 255:.3f})")
+    swatch = f"rgba({THRESHOLD_RGBA[0]}, {THRESHOLD_RGBA[1]}, {THRESHOLD_RGBA[2]}, {THRESHOLD_RGBA[3] / 255:.3f})"
+    return ("<b>Density scale</b>"
+            f'<div class="{RAMP_CLASS}" style="background: linear-gradient(to right, {", ".join(colours)}), #000"></div>'
+            f'<div class="{RAMP_LABELS_CLASS}"><span>Low</span><span>Medium</span><span>High</span></div>'
+            f"<small>{html.escape(DENSITY_LEGEND)} {html.escape(DENSITY_SMOOTHING_NOTE)}</small>"
+            f'<i style="background: {swatch}; border-radius: 2px"></i>High-density cells layer')
 
 
 def build_density_map(result: DensityResult) -> folium.Map:
@@ -355,9 +383,11 @@ def build_density_map(result: DensityResult) -> folium.Map:
 
     No estimator is run: the DensityResult values are displayed as-is via
     density_overlay_rgba / density_overlay_bounds (mercator_project=False,
-    because the rows are already placed in Web Mercator). Adds the legend
-    DENSITY_LEGEND, a toggleable THRESHOLD_LAYER_NAME overlay (hidden by
-    default) and a layer control. Raises AnalysisError for an invalid result.
+    because the rows are already placed in Web Mercator). The browser smooths
+    the image when it scales it; the grid values are not changed. Adds a
+    gradient legend, a toggleable THRESHOLD_LAYER_NAME overlay (hidden by
+    default, kept as crisp cells) and a layer control. Raises AnalysisError for
+    an invalid result.
     """
     bounds = density_overlay_bounds(result)
     (south, west), (north, east) = bounds
@@ -365,17 +395,17 @@ def build_density_map(result: DensityResult) -> folium.Map:
                       zoom_control=ZOOM_CONTROL_POSITION)
     ImageOverlay(
         image=density_overlay_rgba(result), bounds=bounds, origin="upper", mercator_project=False,
-        pixelated=True, name="KDE relative density", overlay=True, control=True, show=True,
+        pixelated=False, name="KDE relative density", overlay=True, control=True, show=True,
     ).add_to(fmap)
     ImageOverlay(
         image=density_overlay_rgba(result, threshold_mask=True), bounds=bounds, origin="upper",
-        mercator_project=False, pixelated=True, name=THRESHOLD_LAYER_NAME, overlay=True, control=True, show=False,
+        mercator_project=False, pixelated=False, name=THRESHOLD_LAYER_NAME, overlay=True, control=True, show=False,
+        className=THRESHOLD_CELL_CLASS,
     ).add_to(fmap)
-    colormap = _density_colormap()
-    colormap.add_to(fmap)
-    _ResponsiveLegend(colormap).add_to(fmap)
+    DarkMapStyle().add_to(fmap)
+    MapLegend(_density_legend()).add_to(fmap)
     folium.LayerControl(collapsed=True, position=LAYER_CONTROL_POSITION).add_to(fmap)
-    fmap.fit_bounds(bounds)
+    fmap.fit_bounds(bounds, padding_top_left=(20, DENSITY_LEGEND_ROOM_PX), padding_bottom_right=(20, 20))
     return fmap
 
 
@@ -422,63 +452,6 @@ def _mercator_row_index(grid_lat: np.ndarray, south: float, north: float) -> np.
     lower = upper - 1
     choose_lower = (lat_centres - grid_lat[lower]) <= (grid_lat[upper] - lat_centres)
     return np.where(choose_lower, lower, upper)
-
-
-class _ResponsiveLegend(MacroElement):
-    """Fits the branca density legend to the map width (rendering only).
-
-    When the map is narrower than DENSITY_LEGEND_WIDTH_PX plus Leaflet's control
-    margins (phone width), the legend's own D3 scale is re-ranged to the
-    available width: same colours, domain 0-1, ticks and font size. If the
-    caption is then too long, it wraps onto two lines at the dash. Wider maps
-    keep the 480 px legend unchanged. Re-runs when the map is resized.
-    """
-
-    _template = Template("""
-{% macro script(this, kwargs) %}
-(function () {
-    var cm = {{ this.colormap.get_name() }};
-    var map = {{ this._parent.get_name() }};
-    var full = {{ this.colormap.caption|tojson }};
-    function fit() {
-        var width = Math.min({{ this.colormap.width }}, map.getContainer().clientWidth - 20);
-        var dom = cm.color.domain();
-        cm.x.range([0, width - 50]);
-        cm.g.selectAll("rect")
-            .attr("x", function (d, i) { return i ? cm.x(dom[i - 1]) : 0; })
-            .attr("width", function (d, i) {
-                var x0 = i ? cm.x(dom[i - 1]) : 0;
-                var x1 = i < dom.length ? cm.x(dom[i]) : cm.x.range()[1];
-                return Math.max(0, x1 - x0);
-            });
-        cm.g.call(cm.xAxis);
-        var caption = cm.g.select("text.caption").text(full);
-        var height = {{ this.colormap.height }};
-        var cut = full.indexOf(" — ");
-        if (cut > 0 && caption.node().getComputedTextLength() > width - 30) {
-            caption.text(null);
-            caption.append("tspan").attr("x", 0).text(full.slice(0, cut));
-            caption.append("tspan").attr("x", 0).attr("dy", "1.2em").text(full.slice(cut + 1));
-            height += 16;
-        }
-        cm.svg.attr("width", width).attr("height", height);
-    }
-    fit();
-    map.on("resize", fit);
-})();
-{% endmacro %}
-""")
-
-    def __init__(self, colormap: branca_cm.LinearColormap):
-        super().__init__()
-        self._name = "ResponsiveLegend"
-        self.colormap = colormap
-
-
-def _density_colormap() -> branca_cm.LinearColormap:
-    colormap = branca_cm.LinearColormap(list(DENSITY_COLORS), vmin=0.0, vmax=1.0, caption=DENSITY_LEGEND)
-    colormap.width = DENSITY_LEGEND_WIDTH_PX   # branca's 450 px default clips the caption
-    return colormap
 
 
 def _require_points(dataset: CleanDataset) -> None:

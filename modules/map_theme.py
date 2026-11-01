@@ -28,6 +28,8 @@ MAP_ACCENT = "#08B8D4"
 TILE_FILTER = "invert(1) hue-rotate(195deg) brightness(0.72) contrast(1.15) saturate(0.55)"
 LEGEND_CLASS = "hs-map-legend"
 CHIP_CLASS = "hs-map-chip"
+RAMP_CLASS = "hs-map-ramp"
+RAMP_LABELS_CLASS = "hs-map-ramp-labels"
 
 DARK_MAP_CSS = f"""
 .leaflet-container {{ background: {MAP_BACKGROUND}; font-family: Inter, 'Segoe UI', system-ui, sans-serif; }}
@@ -54,6 +56,10 @@ DARK_MAP_CSS = f"""
 .{LEGEND_CLASS} b {{ display: block; color: {MAP_TEXT_MUTED}; font-weight: 500; }}
 .{LEGEND_CLASS} i {{ display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%;
   box-sizing: border-box; }}
+.{LEGEND_CLASS} small {{ display: block; max-width: 200px; margin: 4px 0; color: {MAP_TEXT_MUTED}; font-size: 11px; line-height: 1.35; }}
+.{RAMP_CLASS} {{ width: 200px; max-width: 100%; height: 10px; margin-top: 4px; border-radius: 3px; }}
+.{RAMP_LABELS_CLASS} {{ display: flex; justify-content: space-between; max-width: 200px; font-size: 11px; }}
+.hs-grid-cells {{ image-rendering: pixelated; }}
 .{CHIP_CLASS} {{ display: inline-block; transform: translate(-50%, -150%); padding: 1px 7px; white-space: nowrap;
   background: {MAP_PANEL}; color: {MAP_TEXT}; border: 1px solid; border-radius: 10px; font-size: 11px;
   font-weight: 600; pointer-events: none; }}

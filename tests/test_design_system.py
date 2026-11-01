@@ -117,8 +117,9 @@ def test_kpi_values_and_labels_unchanged_in_the_app(tmp_path, monkeypatch):
     at.run()
     assert not at.exception
     assert {m.label: m.value for m in at.metric} == {
-        "Rows in file": "19", "Accepted incidents": "19", "Rejected": "0", "Analysis status": "Complete",
-        "Clusters": "2", "Candidate hotspots": "1", "Noise incidents": "1 of 19", "Noise share": "5.3%"}
+        "Accepted incidents": "19 of 19", "Rejected": "0",
+        "Clusters": "2", "Candidate hotspots": "1", "Noise incidents": "1", "Noise share": "5.3%",
+        "Grid cells": "108 × 101", "Bandwidth": "300 m", "Peak relative score": "4.458e+07"}
 
 
 def test_status_badges_wrap_inside_cards_and_cards_top_align():

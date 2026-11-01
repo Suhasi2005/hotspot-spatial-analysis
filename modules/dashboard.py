@@ -45,7 +45,7 @@ from modules.map_visualization import (
     cluster_color,
 )
 from modules.spatial_statistics import incidents_by_period
-from modules.ui_components import dataset_bar, empty_state, kpi_grid, kpi_strip, page_header, panel
+from modules.ui_components import dataset_bar, empty_state, kpi_grid, kpi_strip, page_header, page_link, panel
 from modules.ui_theme import (
     ACCENT,
     CHART_SECONDARY,
@@ -53,7 +53,10 @@ from modules.ui_theme import (
     DATA_KPI_KEY,
     DENSITY_KPI_KEY,
     FILTERS_KEY,
+    FINDING_PREFIX,
     MOBILE_ONLY_KEY,
+    SUMMARY_DENSITY_KPI_KEY,
+    SUMMARY_FINDINGS_KEY,
     SUMMARY_KPI_KEY,
     SURFACE,
     TEXT_PRIMARY,
@@ -83,6 +86,11 @@ KDE_DISCLAIMER = ("KDE values are relative density scores. They are not incident
                   "incidents per square kilometre.")
 MAP_DOMINANT_RATIO = (5, 2)       # the map is the main element of the Clusters and Density pages
 DOMINANT_MAP_HEIGHT_PX = 620
+SUMMARY_DENSITY_RATIO = (3, 2)
+SUMMARY_MAP_HEIGHT_PX = 520
+SUMMARY_DENSITY_MAP_HEIGHT_PX = 420
+FINDINGS_NOTE = ("These findings describe this dataset with these parameters only. They do not show statistical "
+                 "significance or predict future incidents.")
 
 # --- Summary page (Stage 10B Phase 4.3) ---------------------------------------------------
 SUMMARY_TABS = ("Method Comparison", "Distributions", "Notes & Limitations")
@@ -117,10 +125,14 @@ PAGE_INFO: dict[str, tuple[str, str, str, str]] = {
     "Data": ("Data", ":material/upload_file:", "data", "Import and validate incident datasets."),
     "Clusters (DBSCAN)": ("Clusters", ":material/hub:", "clusters", "Discover spatial clusters using DBSCAN."),
     "Density (KDE)": ("Density", ":material/blur_on:", "density", "Explore relative spatial density using KDE."),
-    "Summary": ("Summary", ":material/insights:", "summary", "Compare analytical methods and review results."),
+    "Summary": ("Summary", ":material/insights:", "summary",
+                "A summary of the current completed spatial analysis: where incidents gather, and how the methods compare."),
     "History & Reports": ("History & Reports", ":material/history:", "history",
                           "Access saved analyses and generated reports."),
 }
+
+
+PAGE_HEADINGS = {"Summary": "Spatial Analysis Overview"}     # where the title differs from the page name
 
 
 def render_page(name: str) -> None:
@@ -175,7 +187,7 @@ def _render_page_body(name: str) -> None:
 
 def _page_header(name: str) -> None:
     """Page title (unchanged text) plus its one-line description."""
-    page_header(name, PAGE_INFO[name][3])
+    page_header(PAGE_HEADINGS.get(name, name), PAGE_INFO[name][3])
 
 
 def column_label(name: str) -> str:
@@ -265,14 +277,22 @@ def cluster_view(
     return mask & (np.isin(labels, list(chosen)) | (labels == NOISE_LABEL)), chosen
 
 
-def cluster_rows_html(clusters: ClusterResult) -> str:
-    """One row per cluster. Built from colours and numbers only, so no text needs escaping."""
+def cluster_rows_html(clusters: ClusterResult, centres: bool = False) -> str:
+    """One row per cluster. Built from colours and numbers only, so no text needs escaping.
+
+    centres=True adds each reported centre and a bar drawn from the incident count.
+    """
     rows = []
+    largest = max((c.incident_count for c in clusters.clusters), default=1)
     for c in clusters.clusters:
         badge = "<em>Candidate hotspot</em>" if c.is_candidate_hotspot else ""
+        centre = ""
+        if centres:
+            bar = f'width: {c.incident_count / largest:.0%}; background: {cluster_color(c.cluster_label)}'
+            centre = f'<small>Centre {c.centroid_lat:.5f}, {c.centroid_lon:.5f}</small><u style="{bar}"></u>'
         rows.append(f'<div class="hs-cluster"><i style="background: {cluster_color(c.cluster_label)}"></i>'
                     f"<b>Cluster {c.cluster_label}</b><span>{c.incident_count:,} incidents · {c.radius_m:,.0f} m radius</span>"
-                    f"{badge}</div>")
+                    f"{badge}{centre}</div>")
     return "".join(rows)
 
 
@@ -609,7 +629,67 @@ def _render_density_page(results: dict[str, Any]) -> None:
 # --- Summary page -----------------------------------------------------------------------
 
 
+def _count(number: int, noun: str) -> str:
+    return f"{number:,} {noun}" if number == 1 else f"{number:,} {noun}s"
+
+
+def key_findings(dataset: CleanDataset, results: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """(icon, title, sentence) for each finding the finished analysis supports.
+
+    Every number is read from the validation report, ClusterResult, DensityResult,
+    SpatialSummary or the parameters used. A failed analysis simply adds no finding.
+    Numbers and fixed text only, so nothing needs escaping.
+    """
+    report = dataset.report
+    clusters: ClusterResult | None = results["clusters"]
+    density = results["density"]
+    summary = results["summary"]
+    findings = [(":material/fact_check:", "Data analysed",
+                 f"{report.valid_rows:,} of {report.total_rows:,} rows were accepted and analysed; "
+                 f"{report.rejected_rows:,} rejected.")]
+    if clusters is not None:
+        found = clusters.clusters
+        if found:
+            largest = max(found, key=lambda c: c.incident_count)
+            clustered = sum(c.incident_count for c in found)
+            text = (f"DBSCAN found {_count(len(found), 'cluster')} holding {clustered:,} of {report.valid_rows:,} incidents. "
+                    f"The largest is Cluster {largest.cluster_label}, with {largest.incident_count:,} incidents.")
+        else:
+            text = "DBSCAN found no clusters with these parameters; every incident is noise."
+        findings.append((":material/hub:", "Clusters", text))
+        share = "" if summary is None or summary.noise_share is None else f" ({summary.noise_share:.1%})"
+        findings.append((":material/scatter_plot:", "Noise",
+                         f"{clusters.noise_count:,} of {report.valid_rows:,} incidents{share} are noise: with these "
+                         "parameters, DBSCAN did not place them in any cluster."))
+        candidates = [c.cluster_label for c in found if c.is_candidate_hotspot]
+        rule = f"the size rule of at least {results['config'].hotspot.min_incidents:,} incidents"
+        if candidates:
+            names = ", ".join(f"Cluster {label}" for label in candidates)
+            text = (f"{_count(len(candidates), 'cluster')} met {rule}: {names}. "
+                    "This is a size rule, not a measure of significance.")
+        else:
+            text = f"No cluster met {rule}."
+        findings.append((":material/location_on:", "Candidate hotspots", text))
+    if density is not None:
+        row, col = np.unravel_index(int(np.argmax(density.density)), density.density.shape)
+        findings.append((":material/blur_on:", "Density peak",
+                         f"The highest relative density score, {density.density.max():.4g}, is near "
+                         f"{density.grid_lat[row]:.5f}, {density.grid_lon[col]:.5f}. "
+                         "Scores compare locations on this map only."))
+    comparison = summary.method_comparison if summary is not None else None
+    if comparison is not None:
+        quantile = density.params["high_density_quantile"]
+        text = (f"{comparison.clustered_high:,} of {comparison.clustered_eligible:,} clustered incidents and "
+                f"{comparison.noise_high:,} of {comparison.noise_eligible:,} noise incidents lie in high-density cells "
+                f"(at or above the {quantile:.0%} quantile of this grid).")
+        if comparison.outside_grid_count:
+            text += f" {comparison.outside_grid_count:,} incidents outside the grid are not counted."
+        findings.append((":material/compare_arrows:", "DBSCAN and KDE", text))
+    return findings
+
+
 def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None:
+    _render_dataset_bar(dataset, analysis_status(results))
     st.caption("Descriptive summary of all accepted incidents. Display filters on the Clusters page do not apply here.")
     if is_synthetic_source(dataset.source_name):
         st.info(SYNTHETIC_NOTICE, icon=":material/science:")
@@ -620,23 +700,18 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
         st.error(f"Summary failed: {results['summary_error']}")
         return
     s = results["summary"]
-    report = dataset.report
     clusters = results["clusters"]
-    st.subheader("Overview")
     kpi_grid([
-        ("Rows in file", f"{report.total_rows:,}"),
-        ("Accepted incidents", f"{s.incident_count:,}"),
-        ("Rejected", f"{report.rejected_rows:,}"),
-        ("Analysis status", analysis_status(results)),
+        ("Accepted incidents", f"{s.incident_count:,} of {dataset.report.total_rows:,}"),
+        ("Rejected", f"{dataset.report.rejected_rows:,}"),
         ("Clusters", NOT_RUN if s.cluster_count is None else str(s.cluster_count)),
         ("Candidate hotspots", NOT_RUN if s.candidate_hotspot_count is None else str(s.candidate_hotspot_count)),
-        ("Noise incidents", NOT_RUN if clusters is None else f"{clusters.noise_count:,} of {s.incident_count:,}"),
+        ("Noise incidents", NOT_RUN if clusters is None else f"{clusters.noise_count:,}"),
         ("Noise share", NOT_RUN if s.noise_share is None else f"{s.noise_share:.1%}"),
     ], SUMMARY_KPI_KEY)
-    st.caption(
-        f"Bounding box (min lat, min lon, max lat, max lon): {', '.join(f'{v:.5f}' for v in s.bounding_box)} · "
-        f"Mean centre (lat, lon): {s.mean_center[0]:.5f}, {s.mean_center[1]:.5f}"
-    )
+    _render_geographic_overview(results)
+    _render_density_overview(results)
+    _render_key_findings(dataset, results)
     with panel("save"):
         _render_save_section(dataset, results)
 
@@ -649,6 +724,77 @@ def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None
     with notes_tab, panel("notes"):
         st.subheader("Notes and caveats")
         st.markdown("\n".join(f"- {n}" for n in s.notes + (mc.notes if mc else [])))
+
+
+def _render_geographic_overview(results: dict[str, Any]) -> None:
+    """The existing cluster map and the existing cluster facts, side by side."""
+    clusters: ClusterResult | None = results["clusters"]
+    map_col, info_col = st.columns(MAP_DOMINANT_RATIO, gap="small")
+    with map_col, panel("geographic_overview", height="stretch"):
+        st.subheader("Geographic overview")
+        if clusters is None:
+            st.info("Not available: the map needs a DBSCAN result.")
+        else:
+            shown = len(clusters.labeled_frame)
+            if shown > MAX_MAP_POINTS:
+                st.warning(
+                    f"Only the first {MAX_MAP_POINTS:,} of {shown:,} accepted incidents (in file order) are drawn as "
+                    "points. This is NOT a representative sample. Every cluster circle is still drawn."
+                )
+            st_folium(build_cluster_map(clusters), height=SUMMARY_MAP_HEIGHT_PX, use_container_width=True,
+                      returned_objects=[], key="summary_cluster_map")
+        s = results["summary"]
+        st.caption(
+            f"Bounding box (min lat, min lon, max lat, max lon): {', '.join(f'{v:.5f}' for v in s.bounding_box)} · "
+            f"Mean centre (lat, lon): {s.mean_center[0]:.5f}, {s.mean_center[1]:.5f}"
+        )
+    with info_col, panel("cluster_overview", height="stretch"):
+        st.subheader("Cluster analysis")
+        if clusters is None:
+            st.info("Not available: this section needs a DBSCAN result.")
+        elif clusters.clusters:
+            st.html(f'<div class="hs-cluster-list">{cluster_rows_html(clusters, centres=True)}</div>')
+            st.caption("Cluster numbers are identifiers, not ranks. Radius is the farthest member from the centre. "
+                       "Bars show incident counts relative to the largest cluster.")
+        else:
+            st.caption("No clusters with these parameters.")
+        page_link("Clusters (DBSCAN)", "Open Clusters")
+
+
+def _render_density_overview(results: dict[str, Any]) -> None:
+    """The existing KDE map and values; nothing is re-estimated here."""
+    density = results["density"]
+    if density is None:
+        with panel("density_overview"):
+            st.subheader("Density analysis")
+            st.info("Not available: this section needs a KDE result.")
+        return
+    map_col, info_col = st.columns(SUMMARY_DENSITY_RATIO, gap="small")
+    with map_col, panel("density_overview", height="stretch"):
+        st.subheader("Density analysis")
+        st_folium(build_density_map(density), height=SUMMARY_DENSITY_MAP_HEIGHT_PX, use_container_width=True,
+                  returned_objects=[], key="summary_density_map")
+    with info_col, panel("density_facts", height="stretch"):
+        st.markdown("#### :material/blur_on: KDE results")
+        kpi_grid([
+            ("Grid cells", f"{density.density.shape[0]} × {density.density.shape[1]}"),
+            ("Bandwidth", f"{density.params['bandwidth_m']:g} m"),
+            ("Peak relative score", f"{density.density.max():.4g}"),
+        ], SUMMARY_DENSITY_KPI_KEY)
+        st.info(KDE_DISCLAIMER, icon=":material/info:")
+        st.caption(f"{DENSITY_SMOOTHING_NOTE} A hot area is not automatically a DBSCAN cluster.")
+        page_link("Density (KDE)", "Open Density")
+
+
+def _render_key_findings(dataset: CleanDataset, results: dict[str, Any]) -> None:
+    with panel("key_findings"):
+        st.subheader("Key findings")
+        with st.container(horizontal=True, wrap=True, key=SUMMARY_FINDINGS_KEY):
+            for index, (icon, title, text) in enumerate(key_findings(dataset, results)):
+                with st.container(key=f"{FINDING_PREFIX}{index}"):
+                    st.markdown(f"**{icon} {title}**")
+                    st.markdown(text)
+        st.caption(FINDINGS_NOTE)
 
 
 def _render_method_comparison(mc) -> None:
@@ -996,11 +1142,12 @@ def _render_upload_workspace(samples: list[Path], load_error: str | None) -> Non
         )
 
 
-def _render_dataset_bar(dataset: CleanDataset) -> None:
+def _render_dataset_bar(dataset: CleanDataset, status: str | None = None) -> None:
+    """File name, counts and a badge: the validation status unless `status` is given."""
     report = dataset.report
     dataset_bar(escape_markdown(dataset.source_name),
                 f"{report.total_rows:,} rows · {report.valid_rows:,} accepted · {report.rejected_rows:,} rejected",
-                validation_status(report))
+                status or validation_status(report))
 
 
 def validation_status(report) -> str:

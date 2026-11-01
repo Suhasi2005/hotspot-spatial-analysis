@@ -128,6 +128,9 @@ _KPI_CSS = (
 # Panels and empty-state cards share one style. The Summary page's KPI grid wraps four
 # across on desktop and two on phones.
 SUMMARY_KPI_KEY = "summary_kpis"
+SUMMARY_DENSITY_KPI_KEY = "summary_density_kpis"
+SUMMARY_FINDINGS_KEY = "summary_findings"
+FINDING_PREFIX = "finding_"
 DATA_KPI_KEY = "data_kpis"
 CLUSTER_KPI_KEY = "cluster_kpis"
 DENSITY_KPI_KEY = "density_kpis"
@@ -136,8 +139,10 @@ PANEL_PREFIX = "panel_"
 EMPTY_STATE_PREFIX = "empty_state_"
 _EMPTY_LINK = f'[class*="st-key-{EMPTY_STATE_PREFIX}"] a'
 KPI_GRID_MIN_CARD_PX = 160
+SUMMARY_KPI_SINGLE_ROW_PX = 1400   # below this width the six Summary cards use two rows of three
+FINDING_MIN_CARD_PX = 240
 _SUMMARY_CSS = (
-    f".st-key-{SUMMARY_KPI_KEY} > *, .st-key-{DATA_KPI_KEY} > *, .st-key-{CLUSTER_KPI_KEY} > * {{ "
+    f".st-key-{DATA_KPI_KEY} > *, .st-key-{CLUSTER_KPI_KEY} > * {{ "
     f"flex: 1 1 calc(25% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
     # Five cards across on desktop; the odd card fills the last row on phones.
@@ -147,6 +152,20 @@ _SUMMARY_CSS = (
     # Compact on phones so the map comes sooner.
     f"@media (max-width: {MOBILE_BREAKPOINT_PX - 1}px) {{ .st-key-{DENSITY_KPI_KEY} {_KPI} {{ min-height: 0; "
     f"padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }} }}\n"
+    # Summary page: compact cards, so the map comes sooner.
+    f".st-key-{SUMMARY_KPI_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; min-width: 150px; }}\n"
+    f"@media (min-width: {SUMMARY_KPI_SINGLE_ROW_PX}px) {{ .st-key-{SUMMARY_KPI_KEY} > * {{ "
+    f"flex-basis: calc(16% - {SPACE_LG}px); }} }}\n"
+    f".st-key-{SUMMARY_DENSITY_KPI_KEY} > * {{ flex: 1 1 calc(50% - {SPACE_LG}px); max-width: 100%; min-width: 130px; }}\n"
+    f".st-key-{SUMMARY_KPI_KEY} {_KPI}, .st-key-{SUMMARY_DENSITY_KPI_KEY} {_KPI} {{ min-height: 0; "
+    f"padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }}\n"
+    f'.st-key-{SUMMARY_KPI_KEY} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"], '
+    f'.st-key-{SUMMARY_DENSITY_KPI_KEY} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"] {{ '
+    f"font-size: {DENSITY_METRIC_VALUE_PX}px; }}\n"
+    f".st-key-{SUMMARY_FINDINGS_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; "
+    f"min-width: {FINDING_MIN_CARD_PX}px; display: flex; flex-direction: column; }}\n"
+    f'[class*="st-key-{FINDING_PREFIX}"] {{ flex: 1 1 auto; background-color: {SURFACE_ELEVATED}; border: 1px solid {BORDER}; '
+    f"border-radius: {RADIUS_CARD_PX}px; padding: {SPACE_MD}px; gap: {SPACE_XS}px; }}\n"
     f'[class*="st-key-{PANEL_PREFIX}"], '
     f'[class*="st-key-{EMPTY_STATE_PREFIX}"] {{ background-color: {SURFACE}; border: 1px solid {BORDER}; '
     f"border-radius: {RADIUS_CARD_PX}px; box-shadow: {SHADOW_CARD}; padding: {SPACE_LG}px; }}\n"
@@ -167,12 +186,15 @@ _DATA_CSS = (
     f".st-key-{PANEL_PREFIX}dataset_bar {{ padding: {SPACE_SM}px {SPACE_LG}px; }}\n"
 )
 # Clusters page: one row per cluster in the information panel.
-_CLUSTER_ROW = f".st-key-{PANEL_PREFIX}cluster_info .hs-cluster"
+_CLUSTER_ROW = f'[class*="st-key-{PANEL_PREFIX}cluster_"] .hs-cluster'
 _CLUSTERS_CSS = (
     f"{_CLUSTER_ROW} {{ display: flex; flex-wrap: wrap; align-items: center; gap: {SPACE_XS}px {SPACE_SM}px; "
     f"padding: {SPACE_SM}px 0; border-top: 1px solid {BORDER}; color: {TEXT_SECONDARY}; font-size: {CAPTION_PX}px; }}\n"
     f"{_CLUSTER_ROW} b {{ color: {TEXT_PRIMARY}; font-weight: {HEADING_WEIGHT}; }}\n"
     f"{_CLUSTER_ROW} i {{ width: 10px; height: 10px; border-radius: 50%; }}\n"
+    f"{_CLUSTER_ROW} small {{ flex-basis: 100%; font-size: inherit; }}\n"
+    f"{_CLUSTER_ROW} u {{ height: 4px; border-radius: 2px; }}\n"
+    f".st-key-{PANEL_PREFIX}cluster_overview .hs-cluster-list {{ max-height: 460px; overflow-y: auto; }}\n"
     f"{_CLUSTER_ROW} em {{ font-style: normal; color: {ACCENT}; border: 1px solid {ACCENT}; border-radius: {RADIUS_CARD_PX}px; "
     f"padding: 0 {SPACE_SM}px; }}\n"
 )

@@ -74,9 +74,12 @@ def page_link(page: str, label: str) -> None:
 # --- containers ----------------------------------------------------------------------------
 
 
-def panel(name: str):
-    """Elevated card used for any grouped content; `name` must be unique on the page."""
-    return st.container(key=f"{PANEL_PREFIX}{name}")
+def panel(name: str, height: str = "content"):
+    """Elevated card used for any grouped content; `name` must be unique on the page.
+
+    height="stretch" makes cards side by side in st.columns the same height.
+    """
+    return st.container(key=f"{PANEL_PREFIX}{name}", height=height)
 
 
 def dataset_bar(name: str, summary: str, status: str) -> None:

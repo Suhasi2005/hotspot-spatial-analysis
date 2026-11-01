@@ -448,6 +448,16 @@ Display only. KDE, the grid, parameters, defaults and the threshold calculation 
 - **Page:** five KPIs, including the existing peak relative score, the map beside a compact panel (`MAP_DOMINANT_RATIO`), and the parameters. The panel explains density, high areas and how density differs from DBSCAN clusters. Further notes are in an expander.
 - **Controls:** the Analysis parameters expander starts open on this page. Keys and behaviour are unchanged.
 
+## Stage 5 Summary page
+Display only. DBSCAN, KDE, the summary, parameters, validation, persistence and reports are unchanged.
+- **Title:** the page shows "Spatial Analysis Overview" (`PAGE_HEADINGS`); its name in the navigation stays Summary.
+- **Status:** the dataset bar shows the file, the counts and the analysis status.
+- **KPIs:** six compact cards, from the same values as before. Analysis status moved to the dataset bar; rows in file is now part of Accepted incidents.
+- **Maps:** the page calls `build_cluster_map` and `build_density_map` with the cached results, so it shows the same interactive maps as the Clusters and Density pages. Their keys are `summary_cluster_map` and `summary_density_map`. Nothing is re-estimated.
+- **Cluster analysis:** `cluster_rows_html(clusters, centres=True)` adds each reported centre.
+- **Key findings:** `key_findings` builds each sentence from the validation report, the analysis results or the parameters used. An analysis that failed adds no finding. The only value not already shown elsewhere is where the KDE peak sits, read directly from the grid.
+- **Kept:** Save to history, Reports, and the Method Comparison, Distributions and Notes tabs, with their widget keys.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

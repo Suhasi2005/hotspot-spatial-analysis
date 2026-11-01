@@ -107,7 +107,7 @@ def test_page_info_covers_every_page_with_icons_and_descriptions():
 def test_every_page_has_title_and_description(page):
     at = _app(page, _dataset() if page != "Data" else None)
     assert not at.exception
-    assert [h.value for h in at.header] == [page]                            # title text unchanged
+    assert [h.value for h in at.header] == [dashboard.PAGE_HEADINGS.get(page, page)]
     assert PAGE_INFO[page][3] in [c.value for c in at.main.caption]
 
 
@@ -144,7 +144,7 @@ def test_status_shows_partial_failure():
     at.run()
     at.number_input(key="p_grid_cell_m").set_value(1.0).run()               # KDE refuses the grid
     assert any("Analysis: Partial — KDE failed" in c for c in _sidebar_captions(at))
-    assert _metrics(at)["Analysis status"] == "Partial — KDE failed"
+    assert any("Partial — KDE failed" in b.value for b in at.main.markdown)
 
 
 def test_markdown_in_file_names_is_not_rendered():
@@ -159,9 +159,10 @@ def test_markdown_in_file_names_is_not_rendered():
 def test_summary_kpis_use_existing_values():
     at = _app("Summary", _dataset())
     m = _metrics(at)
-    assert (m["Rows in file"], m["Accepted incidents"], m["Rejected"], m["Analysis status"]) == ("19", "19", "0", "Complete")
-    assert (m["Clusters"], m["Candidate hotspots"], m["Noise incidents"], m["Noise share"]) == ("2", "1", "1 of 19", "5.3%")
-    assert len(at.metric) == 8
+    assert (m["Accepted incidents"], m["Rejected"]) == ("19 of 19", "0")
+    assert (m["Clusters"], m["Candidate hotspots"], m["Noise incidents"], m["Noise share"]) == ("2", "1", "1", "5.3%")
+    assert len(m) == 9                                                       # six main cards, three KDE values
+    assert any("-badge[Complete]" in b.value for b in at.main.markdown)      # analysis status, in the dataset bar
 
 
 def test_kpis_show_not_run_when_dbscan_did_not_produce_results(monkeypatch):
@@ -171,7 +172,7 @@ def test_kpis_show_not_run_when_dbscan_did_not_produce_results(monkeypatch):
     at = _app("Summary", _dataset())
     m = _metrics(at)
     assert (m["Clusters"], m["Candidate hotspots"], m["Noise incidents"], m["Noise share"]) == (NOT_RUN,) * 4
-    assert m["Analysis status"] == "Partial — DBSCAN failed"
+    assert any("Partial — DBSCAN failed" in b.value for b in at.main.markdown)
 
 
 def test_clusters_and_density_kpis():

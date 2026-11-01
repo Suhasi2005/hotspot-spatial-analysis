@@ -55,7 +55,7 @@ def _metrics(at):
 
 
 def _text(at):
-    return " ".join(m.value for m in at.markdown)
+    return " ".join([m.value for m in at.markdown] + [s.value for s in at.subheader])
 
 
 def test_no_dataset_shows_the_upload_workspace_and_format():

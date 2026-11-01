@@ -118,7 +118,8 @@ def test_no_selection_shows_its_own_empty_state():
     _go(at, HISTORY)
     assert at.selectbox(key="history_report_run").value is None
     assert any("Choose a saved analysis above" in i.value for i in at.info)
-    assert _downloads(at) == [] and len(at.subheader) == 1               # table only, no details yet
+    assert _downloads(at) == []
+    assert [s.value for s in at.subheader] == ["Saved analyses", ":material/touch_app: No analysis selected"]
 
 
 # --- overview and table -------------------------------------------------------------------------------

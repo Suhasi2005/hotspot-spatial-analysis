@@ -31,7 +31,8 @@ from modules.spatial_statistics import _check_cluster_result, _check_density
 # Rendering cap: Leaflet becomes unusable with very many individual markers.
 MAX_MAP_POINTS = 5_000
 SINGLE_POINT_ZOOM = 15
-POINT_STYLE = {"radius": 5, "color": "#1f4e79", "weight": 1, "fill": True, "fill_color": "#2e86c1", "fill_opacity": 0.7}
+POINT_STYLE = {"radius": 5, "color": "#B8F1FA", "weight": 1, "fill": True, "fill_color": "#08B8D4", "fill_opacity": 0.85}
+INCIDENT_LEGEND_ROOM_PX = 70     # top of the initial view kept clear of the legend
 
 # --- cluster map ---------------------------------------------------------------
 # Ten distinguishable colours (Tableau 10). Cluster label L uses CLUSTER_PALETTE[L % 10];
@@ -144,7 +145,7 @@ def _marker_records(frame: pd.DataFrame, labels: np.ndarray | None = None) -> li
 
 
 def build_incident_map(dataset: CleanDataset, max_points: int | None = MAX_MAP_POINTS) -> folium.Map:
-    """Point layer of the accepted incidents (no clustering or density).
+    """Point layer of the accepted incidents on the dark basemap (no clustering or density).
 
     The view fits the bounding box of the plotted points (a single point is
     centred at SINGLE_POINT_ZOOM); there is no hard-coded fallback location.
@@ -160,7 +161,8 @@ def build_incident_map(dataset: CleanDataset, max_points: int | None = MAX_MAP_P
     lons = [r["lon"] for r in records]
     south, north, west, east = min(lats), max(lats), min(lons), max(lons)
 
-    fmap = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=SINGLE_POINT_ZOOM, control_scale=True)
+    fmap = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=SINGLE_POINT_ZOOM, control_scale=True,
+                      zoom_control=ZOOM_CONTROL_POSITION)
     layer = folium.FeatureGroup(name="Incidents")
     for rec in records:
         folium.CircleMarker(
@@ -170,8 +172,12 @@ def build_incident_map(dataset: CleanDataset, max_points: int | None = MAX_MAP_P
             **POINT_STYLE,
         ).add_to(layer)
     layer.add_to(fmap)
+    DarkMapStyle().add_to(fmap)
+    MapLegend(f'<b>On this map</b><i style="background: {POINT_STYLE["fill_color"]}"></i>'
+              f"Incidents: {len(records):,} shown").add_to(fmap)
     if (south, west) != (north, east):
-        fmap.fit_bounds([[south, west], [north, east]], padding=(20, 20))
+        fmap.fit_bounds([[south, west], [north, east]], padding_top_left=(20, INCIDENT_LEGEND_ROOM_PX),
+                        padding_bottom_right=(20, 20))
     return fmap
 
 

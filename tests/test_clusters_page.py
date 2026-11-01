@@ -25,7 +25,6 @@ from modules.map_visualization import (
     NOISE_COLOR,
     NOISE_STYLE,
     build_cluster_map,
-    build_incident_map,
     cluster_marker_records,
 )
 
@@ -97,11 +96,6 @@ def test_cluster_map_has_the_style_legend_and_layers():
     assert "DarkMapStyle" in names and "MapLegend" in names and "LayerControl" in names
     assert _layer_names(fmap) == ["Cluster extents (centroid + radius_m)", "Incidents (cluster colour; grey = noise)",
                                   CLUSTER_LABEL_LAYER]
-
-
-def test_incident_map_is_not_changed():
-    names = [type(c).__name__ for c in build_incident_map(_dataset())._children.values()]
-    assert "DarkMapStyle" not in names and "MapLegend" not in names
 
 
 def test_marks_stay_visible_on_the_dark_map():

@@ -75,6 +75,8 @@ Also:
 - No real-world dataset has been selected; parameter defaults are placeholders.
 - Performance at the 500,000-row limit is unverified.
 - The PDF contains no maps.
+- **Direct links and refreshing:** an address such as `/density` opens that page in a new session, so it starts with no dataset loaded and points to the Data page. Refreshing the browser also starts a new session, so the loaded dataset and parameters are lost; saved runs and their reports stay in the history. An unknown address shows Streamlit's "Page not found" message and opens the Data page. The browser console logs 404s for `/density/_stcore/...` on these loads: the Streamlit client is finding its base address, and the page itself returns 200. This is Streamlit's behaviour, not an application fault.
+- **Errors:** report and storage failures show a plain reason on screen, and an unexpected error shows a generic message. The full detail, including file paths, goes to the server log (the terminal running `streamlit run`).
 
 ## Docs
 - [Requirements](docs/project_requirements.md)

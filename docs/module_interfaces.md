@@ -468,6 +468,15 @@ The database, the stored format, report contents and `generate_reports` are unch
 - **Generating on this page:** the run whose results are still cached in this session can be generated here (`history_generate_reports`), by the same `_report_button` the Summary page uses. The cache holds one analysis, so any other run has no results in memory and cannot, as before.
 - **Buttons:** Save and Generate reports sit in an `st.empty` slot and are cleared in the run that finishes them. They stay after a failure, so the user can retry.
 
+## Stage 7 application-wide integration
+Display, messaging and session state only. DBSCAN, KDE, validation, the database and report generation are unchanged.
+- **Data map:** `build_incident_map` now uses the same dark treatment as the other maps, a legend counting what is drawn, and the same zoom position. Coordinates, markers and popups are unchanged. `POINT_STYLE` is the accent colour, so points show on the dark basemap.
+- **Controls:** `BORDER_STRONG` reaches at least 3:1 on every surface a control sits on, and it is applied to the sidebar too. `BORDER` stays quiet for cards, tables and separators, which are decorative.
+- **One card style:** KPI cards share one size on all pages, and every card title is an `st.subheader`.
+- **Parameters across pages:** Streamlit forgets a widget's value when its page changes. `_keep_parameters` carries the analysis parameters across pages within the session, so a run saved on Summary uses what the user set. Display filters on the Clusters page still reset, because they only affect that page's view.
+- **Errors:** `failure_reason` gives a plain reason for storage and report failures, and `_show_failure` logs the full error through the `modules.dashboard` logger. `client.showErrorDetails = "none"` stops an unexpected error from showing a traceback. `AnalysisError` text and messages raised by the app itself are shown as they are, because they are written for users and contain no paths.
+- **Direct URLs:** not a routing fault; see *Known limitations* in the README. Each address returns 200 and opens its page, in a new session.
+
 ## Invariants every implementer must keep
 - Input frames are never mutated. Return new frames.
 - `labeled_frame` keeps every clean row, in the same order, with `cluster_label` added.

@@ -21,7 +21,7 @@ SECONDARY_BACKGROUND = "#0D1F30"
 SURFACE = "#102438"               # cards and panels
 SURFACE_ELEVATED = "#142B40"
 BORDER = "#1E3A52"                # card edges
-BORDER_STRONG = "#2A4A66"         # widget edges
+BORDER_STRONG = "#587896"         # control edges: at least 3:1 on every surface a control sits on
 TEXT_PRIMARY = "#EAF2FA"
 TEXT_SECONDARY = "#9BB0C5"
 ACCENT = "#08B8D4"
@@ -37,7 +37,7 @@ INFO = "#5CB0F5"
 
 # Derived shades (not new brand colours).
 SIDEBAR_SURFACE = "#102438"       # widget background inside the sidebar
-SIDEBAR_BORDER = "#1E3A52"
+SIDEBAR_BORDER = BORDER_STRONG
 CHART_GRID = "#1E3A52"
 CHART_SECONDARY = "#5F7F9C"       # second series in single-colour charts
 
@@ -54,8 +54,7 @@ SECTION_HEADING_PX = 18           # st.subheader (h3)
 CARD_HEADING_PX = 14              # h4
 CAPTION_PX = 12                   # Streamlit captions are 0.875rem = 12.25px at a 14px base
 HEADING_WEIGHT = 600
-METRIC_VALUE_PX = 28
-DENSITY_METRIC_VALUE_PX = 24       # five cards across, and the peak score is a long number
+METRIC_VALUE_PX = 24
 
 # --- Surfaces, spacing and badges (Stage 10B Phase 4.2) ----------------------------------
 def _mix(colour: str, other: str, share: float) -> str:
@@ -73,7 +72,7 @@ KPI_LABEL_PX = 12
 KPI_LABEL_WEIGHT = 500
 BADGE_VALUE_PX = 14
 BADGE_RADIUS_PX = 13              # full pill on one line (26 px tall); stays tidy when text wraps
-KPI_CARD_MIN_HEIGHT_PX = 104
+KPI_CARD_MIN_HEIGHT_PX = 68
 # Status badges: background = 16% tint of the status colour on the card; text = the same
 # colour lifted towards the primary text so it stays >= 4.5:1 on the tint.
 BADGE_TINT = 0.16
@@ -107,7 +106,7 @@ KPI_KEY_PREFIX = "kpi_"
 _KPI = f'[class*="st-key-{KPI_KEY_PREFIX}"]'
 _KPI_CSS = (
     f"{_KPI} {{ background-color: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS_CARD_PX}px; "
-    f"box-shadow: {SHADOW_CARD}; padding: {SPACE_XL}px {SPACE_LG}px {SPACE_XS}px; "
+    f"box-shadow: {SHADOW_CARD}; padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; "
     f"min-height: {KPI_CARD_MIN_HEIGHT_PX}px; justify-content: flex-start; }}\n"
     f'{_KPI} [data-testid="stMetricLabel"] p {{ font-size: {KPI_LABEL_PX}px; font-weight: {KPI_LABEL_WEIGHT}; '
     f"color: {TEXT_SECONDARY}; }}\n"
@@ -137,14 +136,11 @@ DATA_KPI_KEY = "data_kpis"
 CLUSTER_KPI_KEY = "cluster_kpis"
 DENSITY_KPI_KEY = "density_kpis"
 MOBILE_ONLY_KEY = "mobile_only"
+SIDEBAR_RULE_KEY = "sidebar_rule"
 PANEL_PREFIX = "panel_"
 EMPTY_STATE_PREFIX = "empty_state_"
 _EMPTY_LINK = f'[class*="st-key-{EMPTY_STATE_PREFIX}"] a'
 KPI_GRID_MIN_CARD_PX = 160
-_COMPACT_KPI_KEYS = (SUMMARY_KPI_KEY, SUMMARY_DENSITY_KPI_KEY, HISTORY_KPI_KEY, HISTORY_DETAIL_KPI_KEY)
-_COMPACT_KPIS = ", ".join(f".st-key-{key} {_KPI}" for key in _COMPACT_KPI_KEYS)
-_COMPACT_KPI_VALUES = ", ".join(f'.st-key-{key} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"]'
-                                for key in _COMPACT_KPI_KEYS)
 SUMMARY_KPI_SINGLE_ROW_PX = 1400   # below this width the six Summary cards use two rows of three
 FINDING_MIN_CARD_PX = 240
 _SUMMARY_CSS = (
@@ -153,19 +149,11 @@ _SUMMARY_CSS = (
     f"min-width: {KPI_GRID_MIN_CARD_PX}px; }}\n"
     # Five cards across on desktop; the odd card fills the last row on phones.
     f".st-key-{DENSITY_KPI_KEY} > * {{ flex: 1 1 calc(20% - {SPACE_LG}px); max-width: 100%; min-width: 150px; }}\n"
-    f'.st-key-{DENSITY_KPI_KEY} {_KPI}:not([class*="badge_"]) [data-testid="stMetricValue"] {{ '
-    f"font-size: {DENSITY_METRIC_VALUE_PX}px; }}\n"
-    # Compact on phones so the map comes sooner.
-    f"@media (max-width: {MOBILE_BREAKPOINT_PX - 1}px) {{ .st-key-{DENSITY_KPI_KEY} {_KPI} {{ min-height: 0; "
-    f"padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }} }}\n"
-    # Summary page: compact cards, so the map comes sooner.
     f".st-key-{SUMMARY_KPI_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; min-width: 150px; }}\n"
     f"@media (min-width: {SUMMARY_KPI_SINGLE_ROW_PX}px) {{ .st-key-{SUMMARY_KPI_KEY} > * {{ "
     f"flex-basis: calc(16% - {SPACE_LG}px); }} }}\n"
     f".st-key-{SUMMARY_DENSITY_KPI_KEY} > * {{ flex: 1 1 calc(50% - {SPACE_LG}px); max-width: 100%; min-width: 130px; }}\n"
     f".st-key-{HISTORY_DETAIL_KPI_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; min-width: 130px; }}\n"
-    f"{_COMPACT_KPIS} {{ min-height: 0; padding: {SPACE_SM}px {SPACE_MD}px {SPACE_XS}px; }}\n"
-    f"{_COMPACT_KPI_VALUES} {{ font-size: {DENSITY_METRIC_VALUE_PX}px; }}\n"
     f".st-key-{SUMMARY_FINDINGS_KEY} > * {{ flex: 1 1 calc(33% - {SPACE_LG}px); max-width: 100%; "
     f"min-width: {FINDING_MIN_CARD_PX}px; display: flex; flex-direction: column; }}\n"
     f'[class*="st-key-{FINDING_PREFIX}"] {{ flex: 1 1 auto; background-color: {SURFACE_ELEVATED}; border: 1px solid {BORDER}; '
@@ -220,6 +208,8 @@ _NAV_CSS = (
     f"{_MOBILE_NAV} a p {{ font-size: 11px; line-height: 1.2; white-space: nowrap; }}\n"
     f"@media (min-width: {MOBILE_BREAKPOINT_PX}px) {{ {_MOBILE_NAV} {{ display: none; }} }}\n"
     f"@media (min-width: {MOBILE_BREAKPOINT_PX}px) {{ .st-key-{MOBILE_ONLY_KEY} {{ display: none; }} }}\n"
+    # A separator, not a control, so it keeps the quieter card edge.
+    f".st-key-{SIDEBAR_RULE_KEY} hr {{ border-color: {BORDER}; }}\n"
     # Multiselect chips use the primary colour; Streamlit's white text on it is only 2.4:1.
     f'.st-key-{FILTERS_KEY} [data-testid="stMultiSelectTagsContainer"] span {{ '
     f"color: {ON_ACCENT} !important; }}\n"

@@ -18,7 +18,7 @@ HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 APPROVED = {
     "BACKGROUND": "#071321", "SECONDARY_BACKGROUND": "#0D1F30", "SURFACE": "#102438",
-    "SURFACE_ELEVATED": "#142B40", "BORDER": "#1E3A52", "BORDER_STRONG": "#2A4A66",
+    "SURFACE_ELEVATED": "#142B40", "BORDER": "#1E3A52", "BORDER_STRONG": "#587896",
     "TEXT_PRIMARY": "#EAF2FA", "TEXT_SECONDARY": "#9BB0C5",
     "ACCENT": "#08B8D4", "ACCENT_HOVER": "#2CCDE6", "ACCENT_BLUE": "#2878E5", "ON_ACCENT": "#061A24",
     "SIDEBAR_BACKGROUND": "#091827", "SIDEBAR_TEXT": "#EAF2FA",
@@ -167,5 +167,5 @@ def test_analytical_palettes_are_unchanged():
     assert map_visualization.NOISE_COLOR == "#B7C6D6"          # approved dark-map change
     assert map_visualization.DENSITY_COLORS == ("#0B2545", "#2878E5", "#08B8D4", "#F59E42", "#F0453A")   # approved dark ramp
     assert map_visualization.THRESHOLD_RGBA == (234, 242, 250, 130)
-    assert map_visualization.POINT_STYLE["fill_color"] == "#2e86c1"
+    assert map_visualization.POINT_STYLE["fill_color"] == "#08B8D4"   # approved dark-map change
     assert ui_theme.CHART_COLORWAY[2:] == map_visualization.CLUSTER_PALETTE   # referenced, not redefined

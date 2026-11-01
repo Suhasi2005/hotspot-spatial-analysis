@@ -40,7 +40,7 @@ def test_surface_spacing_and_radius_tokens():
     assert ui_theme.SPACING_PX == (4, 8, 12, 16, 24, 32)
     assert (ui_theme.SPACE_XS, ui_theme.SPACE_2XL) == (4, 32)
     assert ui_theme.SHADOW_CARD.startswith("0 1px") and "rgba(2, 8, 16" in ui_theme.SHADOW_CARD
-    assert (ui_theme.KPI_LABEL_PX, ui_theme.KPI_LABEL_WEIGHT, ui_theme.METRIC_VALUE_PX) == (12, 500, 28)
+    assert (ui_theme.KPI_LABEL_PX, ui_theme.KPI_LABEL_WEIGHT, ui_theme.METRIC_VALUE_PX) == (12, 500, 24)
 
 
 @pytest.mark.parametrize("tone", ["success", "warning", "error", "info"])
@@ -123,9 +123,9 @@ def test_kpi_values_and_labels_unchanged_in_the_app(tmp_path, monkeypatch):
 
 
 def test_status_badges_wrap_inside_cards_and_cards_top_align():
-    """Long badge text wraps within the card; labels share one offset; 104 px card height kept."""
+    """Long badge text wraps within the card; labels share one offset; one 68 px minimum card height."""
     css = ui_theme.SHELL_CSS
-    assert ui_theme.KPI_CARD_MIN_HEIGHT_PX == 104 and "min-height: 104px" in css
+    assert ui_theme.KPI_CARD_MIN_HEIGHT_PX == 68 and "min-height: 68px" in css
     card_rule = next(rule for rule in css.splitlines() if rule.startswith('[class*="st-key-kpi_"] {'))
     assert "justify-content: flex-start" in card_rule
     assert "white-space: normal" in css and "max-width: 100%" in css and "overflow-wrap: break-word" in css

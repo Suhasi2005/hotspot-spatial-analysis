@@ -13,7 +13,7 @@ backgroundColor = "#071321"
 secondaryBackgroundColor = "#102438"
 textColor = "#EAF2FA"
 linkColor = "#08B8D4"
-borderColor = "#2A4A66"
+borderColor = "#587896"
 dataframeBorderColor = "#1E3A52"
 dataframeHeaderBackgroundColor = "#0D1F30"
 dataframeHeaderTextColor = "#9BB0C5"
@@ -28,7 +28,7 @@ baseFontSize = 14
 # h1 and h2 = page headings (pages use st.header today), h3 = sections, h4 = cards.
 headingFontSizes = ["26px", "26px", "18px", "14px"]
 headingFontWeights = [600, 600, 600, 600]
-metricValueFontSize = "28px"
+metricValueFontSize = "24px"
 metricValueFontWeight = 600
 # Gap under the header in the main area (Phase 4.2; Streamlit default 6rem). Mirrors
 # ui_theme.MAIN_PADDING_TOP. The sidebar keeps its own default spacing.
@@ -48,7 +48,7 @@ chartCategoricalColors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
 backgroundColor = "#091827"
 textColor = "#EAF2FA"
 secondaryBackgroundColor = "#102438"
-borderColor = "#1E3A52"
+borderColor = "#587896"
 # The sidebar inherits theme.paddingTop unless set here; 1rem keeps its pre-Phase-4.2
 # position (Streamlit's built-in sidebar gap). Mirrors ui_theme.SIDEBAR_PADDING_TOP.
 paddingTop = "1rem"
@@ -56,3 +56,6 @@ paddingTop = "1rem"
 # Phase 4.2: hide the developer toolbar (Deploy, rerun, clear cache) and menu items.
 [client]
 toolbarMode = "minimal"
+# An unexpected error shows a generic message, not a traceback with file paths. The
+# full error still goes to the server log.
+showErrorDetails = "none"

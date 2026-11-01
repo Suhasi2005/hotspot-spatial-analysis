@@ -7,6 +7,7 @@ analytical logic.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import asdict
 from pathlib import Path
@@ -74,6 +75,8 @@ PREVIEW_ROWS = 100
 MISSING_LABEL = "(missing)"
 NOT_RUN = "Not run"
 CACHE_KEY = "analysis_cache"
+KEPT_PARAMETERS_KEY = "kept_parameters"
+LOG = logging.getLogger(__name__)
 # History database used by the Save button and the History page. Read at call
 # time so tests can point it at a temporary file; the app run itself can be
 # redirected with the HOTSPOT_DB_PATH environment variable (config.settings).
@@ -137,7 +140,7 @@ PAGE_INFO: dict[str, tuple[str, str, str, str]] = {
     "Clusters (DBSCAN)": ("Clusters", ":material/hub:", "clusters", "Discover spatial clusters using DBSCAN."),
     "Density (KDE)": ("Density", ":material/blur_on:", "density", "Explore relative spatial density using KDE."),
     "Summary": ("Summary", ":material/insights:", "summary",
-                "A summary of the current completed spatial analysis: where incidents gather, and how the methods compare."),
+                "A summary of the current completed spatial analysis."),
     "History & Reports": ("History & Reports", ":material/history:", "history",
                           "Revisit saved spatial analyses and access their reports."),
 }
@@ -344,18 +347,34 @@ def escape_markdown(text: str) -> str:
 # --- analysis lifecycle ----------------------------------------------------------------
 
 
+def _keep_parameters(defaults: dict[str, float | int]) -> None:
+    """Carry the parameters between pages.
+
+    Streamlit forgets a widget's value when its page is left, so without this a change
+    made on one page would silently return to the default on the next. Values live in
+    the session only. Runs before the widgets are created, which take their value from here.
+    """
+    kept = st.session_state.get(KEPT_PARAMETERS_KEY, defaults)
+    for key in defaults:
+        st.session_state[key] = st.session_state[key] if key in st.session_state else kept[key]
+
+
 def _sidebar_config(expanded: bool = False) -> AnalysisConfig | None:
     """Analysis parameters from the sidebar; defaults from config; validated by the dataclasses."""
     d = DEFAULT_ANALYSIS_CONFIG
+    defaults = {"p_eps_m": float(d.dbscan.eps_m), "p_min_samples": int(d.dbscan.min_samples),
+                "p_min_incidents": int(d.hotspot.min_incidents), "p_bandwidth_m": float(d.kde.bandwidth_m),
+                "p_grid_cell_m": float(d.kde.grid_cell_m), "p_quantile": float(d.kde.high_density_quantile)}
+    _keep_parameters(defaults)
     sb = st.sidebar.expander("Analysis parameters", expanded=expanded, icon=":material/tune:")
     sb.caption("Changing these re-runs DBSCAN and KDE on all accepted incidents.")
-    eps_m = sb.number_input("DBSCAN eps_m (metres)", value=float(d.dbscan.eps_m), step=50.0, key="p_eps_m")
-    min_samples = sb.number_input("DBSCAN min_samples", value=int(d.dbscan.min_samples), step=1, key="p_min_samples")
-    min_incidents = sb.number_input("Candidate min_incidents", value=int(d.hotspot.min_incidents), step=1, key="p_min_incidents")
-    bandwidth_m = sb.number_input("KDE bandwidth_m (metres)", value=float(d.kde.bandwidth_m), step=50.0, key="p_bandwidth_m")
-    grid_cell_m = sb.number_input("KDE grid_cell_m (metres)", value=float(d.kde.grid_cell_m), step=25.0, key="p_grid_cell_m")
-    quantile = sb.number_input("KDE high_density_quantile", value=float(d.kde.high_density_quantile), step=0.01,
-                               format="%.3f", key="p_quantile")
+    eps_m = sb.number_input("DBSCAN eps_m (metres)", step=50.0, key="p_eps_m")
+    min_samples = sb.number_input("DBSCAN min_samples", step=1, key="p_min_samples")
+    min_incidents = sb.number_input("Candidate min_incidents", step=1, key="p_min_incidents")
+    bandwidth_m = sb.number_input("KDE bandwidth_m (metres)", step=50.0, key="p_bandwidth_m")
+    grid_cell_m = sb.number_input("KDE grid_cell_m (metres)", step=25.0, key="p_grid_cell_m")
+    quantile = sb.number_input("KDE high_density_quantile", step=0.01, format="%.3f", key="p_quantile")
+    st.session_state[KEPT_PARAMETERS_KEY] = {key: st.session_state[key] for key in defaults}
     try:
         return AnalysisConfig(
             dbscan=DBSCANParams(eps_m=float(eps_m), min_samples=int(min_samples)),
@@ -440,19 +459,19 @@ def _render_clusters_page(results: dict[str, Any]) -> None:
     mask, visible = cluster_view(frame, severities, types, show_noise, chosen, candidates, candidates_only)
     shown = int(mask.sum())
     with map_col:
-        with st.container(key=MOBILE_ONLY_KEY):
-            st.caption("Severity, type and noise filters are in the side menu: open it with » at the top left.")
         if shown > MAX_MAP_POINTS:
             st.warning(
                 f"Only the first {MAX_MAP_POINTS:,} of {shown:,} selected incidents (in file order) are drawn as points. "
                 "This is NOT a representative sample. Every cluster circle is still drawn."
             )
-        else:
-            st.caption(f"Showing {shown:,} of {len(frame):,} accepted incidents under the current display filters.")
         st_folium(
             build_cluster_map(clusters, MAX_MAP_POINTS, mask, visible),
             height=DOMINANT_MAP_HEIGHT_PX, use_container_width=True, returned_objects=[], key="cluster_map",
         )
+        with st.container(key=MOBILE_ONLY_KEY):
+            st.caption("Severity, type and noise filters are in the side menu: open it with » at the top left.")
+        if shown <= MAX_MAP_POINTS:
+            st.caption(f"Showing {shown:,} of {len(frame):,} accepted incidents under the current display filters.")
 
     if not clusters.clusters:
         st.info("DBSCAN found no clusters with these parameters; every incident is noise.")
@@ -517,7 +536,7 @@ def _render_cluster_panel(clusters: ClusterResult, config: AnalysisConfig) -> se
     """Cluster selector, per-cluster facts and method notes; returns the chosen cluster labels."""
     labels = [c.cluster_label for c in clusters.clusters]
     with panel("cluster_info"):
-        st.markdown("#### :material/hub: Clusters")
+        st.subheader("Clusters")
         chosen = labels
         if labels:
             # The key includes the count so a new parameter result starts with every cluster shown.
@@ -587,7 +606,7 @@ def _render_density_page(results: dict[str, Any]) -> None:
         st.caption(f"KDE surface computed from all accepted incidents. {DENSITY_SMOOTHING_NOTE} "
                    "Display filters do not apply here.")
     with info_col, panel("density_info"):
-        st.markdown("#### :material/blur_on: Reading this map")
+        st.subheader("Reading this map")
         st.info(KDE_DISCLAIMER, icon=":material/info:")
         st.markdown(
             "- **What it shows:** KDE spreads each incident over its surroundings with a smooth kernel and adds "
@@ -702,7 +721,6 @@ def key_findings(dataset: CleanDataset, results: dict[str, Any]) -> list[tuple[s
 
 def _render_summary_page(dataset: CleanDataset, results: dict[str, Any]) -> None:
     _render_dataset_bar(dataset, analysis_status(results))
-    st.caption("Descriptive summary of all accepted incidents. Display filters on the Clusters page do not apply here.")
     if is_synthetic_source(dataset.source_name):
         st.info(SYNTHETIC_NOTICE, icon=":material/science:")
     for key, name in (("cluster_error", "DBSCAN"), ("density_error", "KDE")):
@@ -760,6 +778,7 @@ def _render_geographic_overview(results: dict[str, Any]) -> None:
             f"Bounding box (min lat, min lon, max lat, max lon): {', '.join(f'{v:.5f}' for v in s.bounding_box)} · "
             f"Mean centre (lat, lon): {s.mean_center[0]:.5f}, {s.mean_center[1]:.5f}"
         )
+        st.caption("Descriptive summary of all accepted incidents. Display filters on the Clusters page do not apply here.")
     with info_col, panel("cluster_overview", height="stretch"):
         st.subheader("Cluster analysis")
         if clusters is None:
@@ -787,7 +806,7 @@ def _render_density_overview(results: dict[str, Any]) -> None:
         st_folium(build_density_map(density), height=SUMMARY_DENSITY_MAP_HEIGHT_PX, use_container_width=True,
                   returned_objects=[], key="summary_density_map")
     with info_col, panel("density_facts", height="stretch"):
-        st.markdown("#### :material/blur_on: KDE results")
+        st.subheader("KDE results")
         kpi_grid([
             ("Grid cells", f"{density.density.shape[0]} × {density.density.shape[1]}"),
             ("Bandwidth", f"{density.params['bandwidth_m']:g} m"),
@@ -917,7 +936,7 @@ def _render_save_section(dataset: CleanDataset, results: dict[str, Any]) -> None
             run = record_run(dataset, results["config"], results["clusters"], results["density"],
                              results["summary"], db_path=HISTORY_DB_PATH)
         except (sqlite3.Error, OSError, ValueError, AnalysisError) as exc:
-            st.error(f"Could not save the run: {exc}")
+            _show_failure("save the run", exc)
             return
         slot.empty()
         results["saved_run_id"] = run.run_id
@@ -956,7 +975,7 @@ def _report_button(results: dict[str, Any], key: str) -> bool:
         with st.spinner("Generating reports…"):
             paths = generate_reports(results["saved_run"], HISTORY_REPORTS_DIR, db_path=HISTORY_DB_PATH)
     except (sqlite3.Error, OSError, ValueError, LookupError, AnalysisError) as exc:
-        st.error(f"Could not generate reports: {exc}")
+        _show_failure("generate reports", exc)
         st.caption("No reports were saved for this attempt. Fix the problem above, then try again.")
         return False
     slot.empty()
@@ -981,7 +1000,7 @@ def _render_history_page() -> None:
     try:
         runs = list_runs(HISTORY_LIMIT, db_path=HISTORY_DB_PATH)
     except (sqlite3.Error, OSError, ValueError) as exc:
-        st.error(f"Could not read the run history: {exc}")
+        _show_failure("read the run history", exc)
         return
     if not runs:
         empty_state("no_runs", ":material/history:", "No saved analyses yet",
@@ -1088,6 +1107,27 @@ def _render_run_reports(run: dict[str, Any]) -> None:
     )
 
 
+def failure_reason(exc: Exception) -> str:
+    """A plain reason for a storage or report failure, without paths or internals."""
+    if isinstance(exc, AnalysisError):                       # written for users by the workflow
+        return str(exc).rstrip(".")
+    if isinstance(exc, sqlite3.Error):
+        return "the history database could not be used"
+    if isinstance(exc, PermissionError):
+        return "the app does not have permission to use the storage folder"
+    if isinstance(exc, OSError):
+        if exc.errno is None and exc.filename is None:       # raised by this app; holds file names only
+            return str(exc).rstrip(".")
+        return "a file or folder could not be read or written"
+    return "a saved record could not be used"
+
+
+def _show_failure(action: str, exc: Exception) -> None:
+    """Tell the user what failed in plain words; the full detail goes to the server log."""
+    LOG.error("Could not %s", action, exc_info=exc)
+    st.error(f"Could not {action}: {failure_reason(exc)}. The details are in the application log.")
+
+
 def _report_files(run: dict[str, Any]) -> tuple[list[Path], list[str]]:
     """Absolute paths of a run's registered reports, plus a message for each invalid stored path."""
     resolved, errors = [], []
@@ -1095,7 +1135,8 @@ def _report_files(run: dict[str, Any]) -> tuple[list[Path], list[str]]:
         try:
             resolved.append(resolve_report_path(stored, HISTORY_REPORTS_DIR))
         except ValueError as exc:
-            errors.append(f"Invalid stored report path: {exc}")
+            LOG.error("Invalid stored report path for run %s", run["run_id"], exc_info=exc)
+            errors.append("Invalid stored report path: one saved report entry cannot be used and was skipped.")
     return resolved, errors
 
 
@@ -1266,13 +1307,13 @@ def _render_upload_workspace(samples: list[Path], load_error: str | None) -> Non
     """The page before a dataset is loaded: a large drop area beside the accepted format."""
     upload_column, format_column = st.columns((3, 2), gap="small")
     with upload_column, panel("data_source"):
-        st.markdown("#### :material/upload_file: Load incident data")
+        st.subheader("Load incident data")
         st.caption("Upload a CSV of point incidents, or start with the bundled sample dataset.")
         _source_controls(samples)
         if load_error is not None:
             st.error(f"This file cannot be used: {load_error}")
     with format_column, panel("data_format"):
-        st.markdown("#### :material/table_view: Accepted CSV format")
+        st.subheader("Accepted CSV format")
         st.markdown(
             f"- **Required columns:** {', '.join(f'`{c}`' for c in REQUIRED_COLUMNS)}\n"
             f"- **Optional columns:** {', '.join(f'`{c}`' for c in OPTIONAL_COLUMNS)}\n"

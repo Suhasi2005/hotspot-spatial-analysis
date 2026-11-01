@@ -50,8 +50,8 @@ def test_sections_are_tabs_and_keep_all_content():
     at = _app(_dataset())
     assert not at.exception
     assert [t.label for t in at.tabs] == list(SUMMARY_TABS) == ["Method Comparison", "Distributions", "Notes & Limitations"]
-    assert [s.value for s in at.subheader][:5] == ["Geographic overview", "Cluster analysis", "Density analysis",
-                                                   "Key findings", "Save to history"]
+    assert [s.value for s in at.subheader][:6] == ["Geographic overview", "Cluster analysis", "Density analysis",
+                                                   "KDE results", "Key findings", "Save to history"]
     assert {"DBSCAN vs KDE (descriptive comparison)", "Incidents by category and date", "Notes and caveats"} <= \
            {s.value for s in at.subheader}
     assert len(at.dataframe) == 2 and len(at.get("plotly_chart")) == 3

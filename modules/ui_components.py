@@ -19,6 +19,7 @@ from modules.ui_theme import (
     NAV_ACTIVE_KEY,
     PANEL_PREFIX,
     SHELL_CSS,
+    SIDEBAR_RULE_KEY,
 )
 
 KPI_PER_ROW = 4
@@ -42,7 +43,7 @@ def app_shell(pages: list[Any], current: Any, brand: str, tagline: str) -> None:
                 st.page_link(page, width="stretch")
         else:
             st.sidebar.page_link(page, width="stretch")
-    st.sidebar.divider()
+    st.sidebar.container(key=SIDEBAR_RULE_KEY).divider()
     _mobile_navigation(pages, current)
 
 
@@ -97,7 +98,7 @@ def empty_state(key: str, icon: str, heading: str, message: str, show=st.info,
                 link: tuple[str, str] | None = None) -> None:
     """Card for "nothing here yet": heading, the existing message, and an optional next step."""
     with st.container(key=f"{EMPTY_STATE_PREFIX}{key}"):
-        st.markdown(f"#### {icon} {heading}")
+        st.subheader(f"{icon} {heading}")
         show(message)
         if link is not None:
             page_link(*link)
